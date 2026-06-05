@@ -1,7 +1,10 @@
 use placeholder_query::{
-    Batch, Column, FetchKey, PgQueryBuilder, Projection, ProjectionExt, Table,
+    Batch, FetchKey, PgQueryBuilder,
+    column::Column,
     expr::{ExprFragment, Ident},
+    projection::{Projection, ProjectionExt},
     query::select::PgQueryPlan,
+    table::Table,
 };
 
 use std::collections::HashMap;

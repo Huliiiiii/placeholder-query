@@ -1,6 +1,8 @@
 use crate::{
-    Column, Projection, Table,
+    column::Column,
     expr::{ExprFragment, Ident},
+    projection::Projection,
+    table::Table,
     value::Value,
 };
 

@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use crate::{
     expr::{ExprFragment, Ident},
-    table::{Projection, Table},
+    projection::Projection,
+    table::Table,
 };
 
 use super::{
