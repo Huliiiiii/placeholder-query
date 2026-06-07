@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{
+use placeholder_query_builder::{
     expr::{ExprId, Exprs, Ident},
     value::Value,
 };
@@ -43,8 +43,11 @@ pub struct PgQueryPlan {
 impl PgQueryPlan {
     pub(crate) fn new(from: PgTableRef) -> Self {
         Self {
+            exprs: Exprs::new(),
             from,
-            ..Self::default()
+            joins: Vec::new(),
+            filters: Vec::new(),
+            select: Vec::new(),
         }
     }
 
@@ -53,31 +56,10 @@ impl PgQueryPlan {
     }
 }
 
-impl Default for PgQueryPlan {
-    fn default() -> Self {
-        Self {
-            exprs: Exprs::default(),
-            from: PgTableRef::default(),
-            joins: Vec::new(),
-            filters: Vec::new(),
-            select: Vec::new(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PgTableRef {
     pub(crate) name: Ident,
     pub(crate) alias: Ident,
-}
-
-impl Default for PgTableRef {
-    fn default() -> Self {
-        Self {
-            name: "".into(),
-            alias: "".into(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -418,7 +418,26 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 [[package]]
 name = "placeholder_query"
 version = "0.1.0"
+
+[[package]]
+name = "placeholder_query_builder"
+version = "0.1.0"
+
+[[package]]
+name = "placeholder_query_postgres"
+version = "0.1.0"
 dependencies = [
+ "placeholder_query",
+ "placeholder_query_builder",
+]
+
+[[package]]
+name = "placeholder_query_postgres_driver"
+version = "0.1.0"
+dependencies = [
+ "placeholder_query",
+ "placeholder_query_builder",
+ "placeholder_query_postgres",
  "postgres",
 ]
 

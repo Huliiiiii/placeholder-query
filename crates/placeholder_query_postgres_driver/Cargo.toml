@@ -1,0 +1,10 @@
+[package]
+name = "placeholder_query_postgres_driver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+placeholder_query = { path = "../.." }
+placeholder_query_builder = { path = "../placeholder_query_builder" }
+placeholder_query_postgres = { path = "../placeholder_query_postgres" }
+postgres = "0.19.13"

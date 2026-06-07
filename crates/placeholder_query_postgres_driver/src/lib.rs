@@ -1,12 +1,14 @@
 use std::{convert::TryFrom, error::Error, fmt};
 
+use placeholder_query::{ExecutedBatch, Fetch};
+use placeholder_query_builder::value::Value;
+use placeholder_query_postgres::{PgBackend, PgQuery};
 use postgres::{Client, NoTls, types::ToSql};
 
-use crate::{ExecutedBatch, Fetch, PgQueryBuilder, query::select::PgQuery, value::Value};
+pub type PgDriverBackend = PgBackend<postgres::Row, postgres::Error>;
 
 pub struct PgExecutor {
     client: Client,
-    builder: PgQueryBuilder,
 }
 
 impl PgExecutor {
@@ -15,10 +17,7 @@ impl PgExecutor {
     }
 
     pub fn from_client(client: Client) -> Self {
-        Self {
-            client,
-            builder: PgQueryBuilder,
-        }
+        Self { client }
     }
 
     pub fn client_mut(&mut self) -> &mut Client {
@@ -27,17 +26,9 @@ impl PgExecutor {
 
     pub fn execute(
         &mut self,
-        fetch: &Fetch<PgQueryBuilder>,
+        fetch: &Fetch<PgDriverBackend>,
     ) -> Result<Vec<ExecutedBatch>, PgExecutorError> {
-        let mut results = Vec::new();
-
-        for batch in fetch.plan_batches() {
-            let query = batch.build_query(&self.builder);
-            let rows = self.query(&query.query)?;
-            results.push(batch.collect(&self.builder, rows)?);
-        }
-
-        Ok(results)
+        fetch.execute(&PgDriverBackend::new(), |query| self.query(query))
     }
 
     fn query(&mut self, query: &PgQuery) -> Result<Vec<postgres::Row>, PgExecutorError> {

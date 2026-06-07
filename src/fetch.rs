@@ -1,6 +1,8 @@
 use std::{any::TypeId, collections::HashMap, marker::PhantomData};
 
-use crate::batch::{Batch, BatchNode, FetchKey, FetchKeyNode, PlannedQuery, QueryBuilder};
+use crate::batch::{
+    Batch, BatchNode, ExecutedBatch, FetchKey, FetchKeyNode, PlannedQuery, QueryBuilder,
+};
 
 pub struct FetchCx<B>
 where
@@ -57,6 +59,25 @@ where
             .into_iter()
             .map(|batch| batch.build_query(builder))
             .collect()
+    }
+
+    pub fn execute<E>(
+        &self,
+        builder: &B,
+        mut query: impl FnMut(&B::Query) -> Result<Vec<B::Row>, E>,
+    ) -> Result<Vec<ExecutedBatch>, E>
+    where
+        E: From<B::Error>,
+    {
+        let mut results = Vec::new();
+
+        for batch in self.plan_batches() {
+            let planned = batch.build_query(builder);
+            let rows = query(&planned.query)?;
+            results.push(batch.collect(builder, rows).map_err(E::from)?);
+        }
+
+        Ok(results)
     }
 
     pub fn traverse<A>(

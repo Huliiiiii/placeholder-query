@@ -3,7 +3,7 @@ use super::{
     render::render_query,
 };
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct PgQueryBuilder;
 
 impl PgQueryBuilder {

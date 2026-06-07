@@ -1,11 +1,12 @@
-use placeholder_query::{
-    Batch, FetchKey, PgQueryBuilder,
+use placeholder_query::{Batch, FetchKey};
+use placeholder_query_builder::{
     column::Column,
     expr::{ExprFragment, Ident},
     projection::{Projection, ProjectionExt},
-    query::select::PgQueryPlan,
     table::Table,
 };
+use placeholder_query_postgres::{PgQueryBuilder, query::select::PgQueryPlan};
+use placeholder_query_postgres_driver::PgDriverBackend;
 
 use std::collections::HashMap;
 
@@ -25,13 +26,14 @@ impl FetchKey for UserById {
     type Output = Option<User>;
 }
 
-impl Batch<UserById> for PgQueryBuilder {
+impl Batch<UserById> for PgDriverBackend {
     fn plan(&self, keys: &[UserById]) -> PgQueryPlan {
-        self.select(|q| {
-            q.from(users::table())
-                .filter(|user| user.id().in_(keys.iter().map(|key| key.id)))
-        })
-        .into()
+        PgQueryBuilder
+            .select(|q| {
+                q.from(users::table())
+                    .filter(|user| user.id().in_(keys.iter().map(|key| key.id)))
+            })
+            .into()
     }
 
     fn collect(
@@ -74,14 +76,15 @@ impl FetchKey for UserCardById {
     type Output = Option<UserCard>;
 }
 
-impl Batch<UserCardById> for PgQueryBuilder {
+impl Batch<UserCardById> for PgDriverBackend {
     fn plan(&self, keys: &[UserCardById]) -> PgQueryPlan {
-        self.select(|q| {
-            q.from(users::table())
-                .filter(|user| user.id().in_(keys.iter().map(|key| key.id)))
-                .project(UserCard::project)
-        })
-        .into()
+        PgQueryBuilder
+            .select(|q| {
+                q.from(users::table())
+                    .filter(|user| user.id().in_(keys.iter().map(|key| key.id)))
+                    .project(UserCard::project)
+            })
+            .into()
     }
 
     fn collect(
@@ -137,17 +140,18 @@ impl FetchKey for PostWithAuthorById {
     type Output = Option<PostWithAuthor>;
 }
 
-impl Batch<PostWithAuthorById> for PgQueryBuilder {
+impl Batch<PostWithAuthorById> for PgDriverBackend {
     fn plan(&self, keys: &[PostWithAuthorById]) -> PgQueryPlan {
-        self.select(|q| {
-            q.from(posts::table())
-                .join(users::table(), |(post, author)| {
-                    post.author_id().eq(author.id())
-                })
-                .filter(|(post, _)| post.id().in_(keys.iter().map(|key| key.id)))
-                .project(PostWithAuthor::project)
-        })
-        .into()
+        PgQueryBuilder
+            .select(|q| {
+                q.from(posts::table())
+                    .join(users::table(), |(post, author)| {
+                        post.author_id().eq(author.id())
+                    })
+                    .filter(|(post, _)| post.id().in_(keys.iter().map(|key| key.id)))
+                    .project(PostWithAuthor::project)
+            })
+            .into()
     }
 
     fn collect(

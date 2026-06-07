@@ -1,10 +1,11 @@
 use std::fmt::Write;
 
-use crate::{
+use placeholder_query_builder::{
     expr::{BinaryOp, Column, Expr, ExprId, Exprs},
-    utils::JoinWrite,
     value::Value,
 };
+
+use crate::utils::JoinWrite;
 
 use super::plan::{PgQuery, PgQueryPlan};
 
@@ -103,8 +104,8 @@ fn render_values(sql: &mut String, values: &[Value], params: &mut Vec<Value>) {
 }
 
 fn render_column(sql: &mut String, column: &Column) {
-    match &column.schema {
-        Some(schema) => write!(sql, "{}.{}.{}", schema, column.table, column.name).unwrap(),
-        None => write!(sql, "{}.{}", column.table, column.name).unwrap(),
+    match column.schema() {
+        Some(schema) => write!(sql, "{}.{}.{}", schema, column.table(), column.name()).unwrap(),
+        None => write!(sql, "{}.{}", column.table(), column.name()).unwrap(),
     }
 }

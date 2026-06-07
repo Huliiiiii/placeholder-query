@@ -1,4 +1,4 @@
-use crate::{
+use placeholder_query_builder::{
     column::Column,
     expr::{ExprFragment, Ident},
     projection::Projection,

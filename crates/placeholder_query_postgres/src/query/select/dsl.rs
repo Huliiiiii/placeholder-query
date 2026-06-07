@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{
+use placeholder_query_builder::{
     expr::{ExprFragment, Ident},
     projection::Projection,
     table::Table,
@@ -11,7 +11,7 @@ use super::{
     plan::{PgFrom, PgJoin, PgQueryPlan, PgSelect, PgSelectQuery, PgTableRef},
 };
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct PgQueryCx;
 
 impl PgQueryBuilder {

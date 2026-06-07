@@ -4,24 +4,13 @@ use std::{
     hash::Hash,
 };
 
-use postgres::Row;
-
-use crate::query::select::{PgQuery, PgQueryBuilder, PgQueryPlan};
-
 pub trait QueryBuilder {
     type Plan;
     type Query;
+    type Row;
+    type Error;
 
     fn compile(&self, plan: &Self::Plan) -> Self::Query;
-}
-
-impl QueryBuilder for PgQueryBuilder {
-    type Plan = PgQueryPlan;
-    type Query = PgQuery;
-
-    fn compile(&self, plan: &Self::Plan) -> Self::Query {
-        self.build(plan)
-    }
 }
 
 pub trait FetchKey: Clone + Eq + Hash + Send + Sync + 'static {
@@ -34,7 +23,7 @@ where
 {
     fn plan(&self, keys: &[K]) -> Self::Plan;
 
-    fn collect(&self, keys: &[K], rows: Vec<Row>) -> Result<Vec<K::Output>, postgres::Error>;
+    fn collect(&self, keys: &[K], rows: Vec<Self::Row>) -> Result<Vec<K::Output>, Self::Error>;
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -112,7 +101,7 @@ where
 
     fn build_query(&self, builder: &B) -> PlannedQuery<B::Query>;
 
-    fn collect(&self, builder: &B, rows: Vec<Row>) -> Result<ExecutedBatch, postgres::Error>;
+    fn collect(&self, builder: &B, rows: Vec<B::Row>) -> Result<ExecutedBatch, B::Error>;
 }
 
 struct KeyBatch<K>
@@ -162,7 +151,7 @@ where
         }
     }
 
-    fn collect(&self, builder: &B, rows: Vec<Row>) -> Result<ExecutedBatch, postgres::Error> {
+    fn collect(&self, builder: &B, rows: Vec<B::Row>) -> Result<ExecutedBatch, B::Error> {
         builder
             .collect(&self.keys, rows)
             .map(ExecutedBatch::new::<K>)

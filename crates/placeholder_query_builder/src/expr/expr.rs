@@ -40,23 +40,27 @@ impl Expr {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Exprs {
     pub(crate) nodes: Vec<Expr>,
 }
 
 impl Exprs {
+    pub fn new() -> Self {
+        Self { nodes: Vec::new() }
+    }
+
     pub(crate) fn push(&mut self, expr: Expr) -> ExprId {
         let id = ExprId(self.nodes.len());
         self.nodes.push(expr);
         id
     }
 
-    pub(crate) fn get(&self, id: ExprId) -> &Expr {
+    pub fn get(&self, id: ExprId) -> &Expr {
         &self.nodes[id.0]
     }
 
-    pub(crate) fn append(&mut self, fragment: ExprFragment) -> ExprId {
+    pub fn append(&mut self, fragment: ExprFragment) -> ExprId {
         let offset = self.nodes.len();
         let root = fragment.root + offset;
 
@@ -80,7 +84,7 @@ pub struct ExprFragment {
 
 impl ExprFragment {
     fn from_expr(expr: Expr) -> Self {
-        let mut exprs = Exprs::default();
+        let mut exprs = Exprs::new();
         let root = exprs.push(expr);
 
         Self { exprs, root }
@@ -88,7 +92,7 @@ impl ExprFragment {
 
     pub(crate) fn binary(op: BinaryOp, left: Self, right: impl Into<Self>) -> Self {
         let right = right.into();
-        let mut exprs = Exprs::default();
+        let mut exprs = Exprs::new();
         let left = exprs.append(left);
         let right = exprs.append(right);
         let root = exprs.push(Expr::Binary { op, left, right });

@@ -1,7 +1,10 @@
 #[path = "api_example/model.rs"]
 mod model;
 
-use placeholder_query::{Fetch, PgQueryBuilder, value::Value};
+use placeholder_query::Fetch;
+use placeholder_query_builder::value::Value;
+use placeholder_query_postgres::PgQueryBuilder;
+use placeholder_query_postgres_driver::PgDriverBackend;
 
 use model::{PostWithAuthorById, UserById, UserCardById, users};
 
@@ -18,7 +21,7 @@ fn table_can_be_projected_as_row_model() {
 
 #[test]
 fn table_key_builds_whole_row_query() {
-    let queries = Fetch::new(|cx| cx.get(UserById { id: 7 })).to_queries(&PgQueryBuilder);
+    let queries = Fetch::new(|cx| cx.get(UserById { id: 7 })).to_queries(&PgDriverBackend::new());
 
     assert_eq!(
         queries[0].query.sql,
@@ -29,7 +32,8 @@ fn table_key_builds_whole_row_query() {
 
 #[test]
 fn projection_key_builds_projection_query() {
-    let queries = Fetch::new(|cx| cx.get(UserCardById { id: 7 })).to_queries(&PgQueryBuilder);
+    let queries =
+        Fetch::new(|cx| cx.get(UserCardById { id: 7 })).to_queries(&PgDriverBackend::new());
 
     assert_eq!(queries.len(), 1);
     assert_eq!(
@@ -45,7 +49,7 @@ fn duplicate_table_keys_are_merged_across_fetch_combinators() {
         cx.get(UserById { id: 7 })
             .zip(Fetch::traverse([8, 7, 8], |id| cx.get(UserById { id })))
     })
-    .to_queries(&PgQueryBuilder);
+    .to_queries(&PgDriverBackend::new());
 
     assert_eq!(queries.len(), 1);
     assert_eq!(
@@ -61,7 +65,7 @@ fn table_key_and_projection_key_are_distinct_requests() {
         cx.get(UserById { id: 7 })
             .zip(cx.get(UserCardById { id: 7 }))
     })
-    .to_queries(&PgQueryBuilder);
+    .to_queries(&PgDriverBackend::new());
 
     assert_eq!(queries.len(), 2);
     assert_eq!(
@@ -77,7 +81,7 @@ fn table_key_and_projection_key_are_distinct_requests() {
 #[test]
 fn projection_key_can_join_different_models() {
     let queries =
-        Fetch::new(|cx| cx.get(PostWithAuthorById { id: 99 })).to_queries(&PgQueryBuilder);
+        Fetch::new(|cx| cx.get(PostWithAuthorById { id: 99 })).to_queries(&PgDriverBackend::new());
 
     assert_eq!(queries.len(), 1);
     assert_eq!(

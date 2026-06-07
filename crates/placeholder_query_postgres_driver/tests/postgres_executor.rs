@@ -3,7 +3,8 @@ mod model;
 
 use std::error::Error;
 
-use placeholder_query::{Fetch, PgExecutor};
+use placeholder_query::Fetch;
+use placeholder_query_postgres_driver::PgExecutor;
 
 use model::{PostWithAuthor, PostWithAuthorById, User, UserById};
 
