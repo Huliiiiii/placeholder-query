@@ -12,7 +12,7 @@ pub struct FetchCx<B>
 where
     B: FetchBackend,
 {
-    _builder: PhantomData<fn() -> B>,
+    _backend: PhantomData<fn() -> B>,
 }
 
 type StepFn<B, A> = Box<dyn FnOnce(&mut FetchState<B>) -> FetchStep<B, A>>;
@@ -68,7 +68,7 @@ where
 {
     pub fn new(build: impl FnOnce(&FetchCx<B>) -> Fetch<B, A>) -> Self {
         let cx = FetchCx {
-            _builder: PhantomData,
+            _backend: PhantomData,
         };
 
         build(&cx)
@@ -129,7 +129,7 @@ where
         Fetch::from_step(|state| match self.poll(state) {
             FetchStep::Ready(value) => {
                 let cx = FetchCx {
-                    _builder: PhantomData,
+                    _backend: PhantomData,
                 };
                 then(value, &cx).poll(state)
             }
