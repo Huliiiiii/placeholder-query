@@ -1,8 +1,0 @@
-[package]
-name = "placeholder_query_postgres"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-placeholder_query = { path = "../.." }
-placeholder_query_builder = { path = "../placeholder_query_builder" }

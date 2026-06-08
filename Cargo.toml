@@ -1,15 +1,8 @@
 [workspace]
 members = [
-    ".",
-    "crates/placeholder_query_builder",
-    "crates/placeholder_query_postgres",
-    "crates/placeholder_query_postgres_driver",
+    "runtime",
+    "query-core",
+    "query-postgres",
+    "tokio-postgres",
 ]
 resolver = "3"
-
-[package]
-name = "placeholder_query"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]

@@ -1,0 +1,9 @@
+[package]
+name = "placeholder-query-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+indexmap = "2.14.0"
+placeholder-query-core = { path = "../query-core" }
+placeholder-query-runtime = { path = "../runtime" }

@@ -1,0 +1,12 @@
+[package]
+name = "placeholder-query-tokio-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures-util = "0.3.32"
+placeholder-query-core = { path = "../query-core" }
+placeholder-query-postgres = { path = "../query-postgres" }
+placeholder-query-runtime = { path = "../runtime" }
+tokio = { version = "1.52.3", features = ["rt-multi-thread"] }
+tokio-postgres = "0.7.17"

@@ -161,6 +161,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e3450815272ef58cec6d564423f6e755e25379b217b0bc688e295ba24df6b1d"
 
 [[package]]
+name = "futures-macro"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e835b70203e41293343137df5c0664546da5745f82ec9b84d40be8336958447b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "futures-sink"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -179,6 +190,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "389ca41296e6190b48053de0321d02a77f32f8a5d2461dd38762c0593805c6d6"
 dependencies = [
  "futures-core",
+ "futures-macro",
  "futures-sink",
  "futures-task",
  "pin-project-lite",
@@ -416,41 +428,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
-name = "placeholder_query"
+name = "placeholder-query-core"
 version = "0.1.0"
 
 [[package]]
-name = "placeholder_query_builder"
-version = "0.1.0"
-
-[[package]]
-name = "placeholder_query_postgres"
+name = "placeholder-query-postgres"
 version = "0.1.0"
 dependencies = [
- "placeholder_query",
- "placeholder_query_builder",
+ "indexmap",
+ "placeholder-query-core",
+ "placeholder-query-runtime",
 ]
 
 [[package]]
-name = "placeholder_query_postgres_driver"
+name = "placeholder-query-runtime"
 version = "0.1.0"
 dependencies = [
- "placeholder_query",
- "placeholder_query_builder",
- "placeholder_query_postgres",
- "postgres",
+ "indexmap",
 ]
 
 [[package]]
-name = "postgres"
-version = "0.19.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aacf632d0554ff75f58183694f41dc8999c8a3a43a386994d0ec2d034f1dfbe1"
+name = "placeholder-query-tokio-postgres"
+version = "0.1.0"
 dependencies = [
- "bytes",
- "fallible-iterator",
  "futures-util",
- "log",
+ "placeholder-query-core",
+ "placeholder-query-postgres",
+ "placeholder-query-runtime",
  "tokio",
  "tokio-postgres",
 ]
