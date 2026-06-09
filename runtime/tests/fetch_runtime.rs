@@ -106,7 +106,7 @@ impl FetchKey<TestBackend> for UserById {
             .map(|key| (key, None))
             .collect::<IndexMap<_, _>>();
 
-        FetchBatch::new(request, move |rows| {
+        FetchBatch::new(request, |rows| {
             for row in rows {
                 let Row::User(user) = row else {
                     continue;
@@ -130,7 +130,7 @@ impl FetchKey<TestBackend> for UserCardById {
             .map(|key| (key, None))
             .collect::<IndexMap<_, _>>();
 
-        FetchBatch::new(request, move |rows| {
+        FetchBatch::new(request, |rows| {
             for row in rows {
                 let Row::UserCard(card) = row else {
                     continue;
@@ -154,7 +154,7 @@ impl FetchKey<TestBackend> for PostsByAuthor {
             .map(|key| (key, Vec::new()))
             .collect::<IndexMap<_, _>>();
 
-        FetchBatch::new(request, move |rows| {
+        FetchBatch::new(request, |rows| {
             for row in rows {
                 let Row::Post(post) = row else {
                     continue;
@@ -181,7 +181,7 @@ impl FetchKey<TestBackend> for PostWithAuthorById {
             .map(|key| (key, None))
             .collect::<IndexMap<_, _>>();
 
-        FetchBatch::new(request, move |rows| {
+        FetchBatch::new(request, |rows| {
             for row in rows {
                 let Row::PostWithAuthor(post) = row else {
                     continue;
@@ -205,7 +205,7 @@ impl FetchKey<TestBackend> for PostWithAuthorAndCommentById {
             .map(|key| (key, None))
             .collect::<IndexMap<_, _>>();
 
-        FetchBatch::new(request, move |rows| {
+        FetchBatch::new(request, |rows| {
             for row in rows {
                 let Row::PostWithAuthorAndComment(post) = row else {
                     continue;
@@ -229,7 +229,7 @@ impl FetchKey<TestBackend> for UserWithManagerById {
             .map(|key| (key, None))
             .collect::<IndexMap<_, _>>();
 
-        FetchBatch::new(request, move |rows| {
+        FetchBatch::new(request, |rows| {
             for row in rows {
                 let Row::UserWithManager(user) = row else {
                     continue;
@@ -253,7 +253,7 @@ impl FetchKey<TestBackend> for RequiredUserById {
             .map(|key| (key, Err(UserLookupError::NotFound)))
             .collect::<IndexMap<_, _>>();
 
-        FetchBatch::new(request, move |rows| {
+        FetchBatch::new(request, |rows| {
             for row in rows {
                 let Row::User(user) = row else {
                     continue;

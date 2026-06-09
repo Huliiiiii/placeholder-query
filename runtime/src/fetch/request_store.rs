@@ -1,7 +1,4 @@
-use std::{
-    any::{Any, TypeId},
-    hash::Hash,
-};
+use std::any::{Any, TypeId};
 
 use indexmap::{IndexMap, IndexSet};
 
@@ -159,15 +156,6 @@ impl<K> PendingKeySet<K> {
     }
 }
 
-impl<K> PendingKeySet<K>
-where
-    K: Eq + Hash,
-{
-    fn insert(&mut self, key: K) {
-        self.keys.insert(key);
-    }
-}
-
 impl<B, K> PendingBatch<B> for PendingKeySet<K>
 where
     B: FetchBackend + 'static,
@@ -178,14 +166,14 @@ where
         let key = *key
             .downcast::<K>()
             .expect("request store batch type should match fetch key type");
-        self.insert(key);
+        self.keys.insert(key);
     }
 
     fn prepare(self: Box<Self>) -> PreparedRequest<B> {
         let keys = self.keys.iter().cloned().collect::<Vec<_>>();
         let request: FetchBatch<B, K> = K::batch(&keys).into();
 
-        PreparedRequest::new(request.request, move |rows, data_cache| {
+        PreparedRequest::new(request.request, |rows, data_cache| {
             let mut outputs = (request.collect)(rows)?;
 
             for key in keys {

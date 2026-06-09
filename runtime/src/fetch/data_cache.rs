@@ -1,6 +1,5 @@
 use std::{
     any::{Any, TypeId},
-    hash::Hash,
     marker::PhantomData,
 };
 
@@ -55,17 +54,11 @@ where
     }
 }
 
-struct KeyCacheBucket<K, O>
-where
-    K: Eq + Hash,
-{
+struct KeyCacheBucket<K, O> {
     values: IndexMap<K, O>,
 }
 
-impl<K, O> KeyCacheBucket<K, O>
-where
-    K: Eq + Hash,
-{
+impl<K, O> KeyCacheBucket<K, O> {
     fn new() -> Self {
         Self {
             values: IndexMap::new(),

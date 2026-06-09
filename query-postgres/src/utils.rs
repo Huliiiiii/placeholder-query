@@ -1,10 +1,10 @@
 use std::fmt;
-pub(crate) struct JoinWrite<'a, T, I, B, F1, F2, F3, F4>
+pub(crate) struct JoinWrite<'a, I, B, F1, F2, F3, F4>
 where
-    I: IntoIterator<Item = T>,
+    I: IntoIterator,
     B: fmt::Write,
     F1: FnMut(&mut B) -> fmt::Result,
-    F2: FnMut(&mut B, T) -> fmt::Result,
+    F2: FnMut(&mut B, I::Item) -> fmt::Result,
     F3: FnMut(&mut B) -> fmt::Result,
     F4: FnMut(&mut B) -> fmt::Result,
 {
@@ -16,12 +16,12 @@ where
     pub at_last: F4,
 }
 
-impl<T, I, B, F1, F2, F3, F4> JoinWrite<'_, T, I, B, F1, F2, F3, F4>
+impl<I, B, F1, F2, F3, F4> JoinWrite<'_, I, B, F1, F2, F3, F4>
 where
-    I: IntoIterator<Item = T>,
+    I: IntoIterator,
     B: fmt::Write,
     F1: FnMut(&mut B) -> fmt::Result,
-    F2: FnMut(&mut B, T) -> fmt::Result,
+    F2: FnMut(&mut B, I::Item) -> fmt::Result,
     F3: FnMut(&mut B) -> fmt::Result,
     F4: FnMut(&mut B) -> fmt::Result,
 {

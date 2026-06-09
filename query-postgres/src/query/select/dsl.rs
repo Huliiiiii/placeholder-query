@@ -45,7 +45,7 @@ impl PgQueryCx {
     }
 }
 
-impl<Columns: Clone> PgSelectBuilder<Columns> {
+impl<Columns> PgSelectBuilder<Columns> {
     fn next_alias(&mut self) -> Ident {
         let alias = format!("t{}", self.alias_count).into();
         self.alias_count += 1;
@@ -56,7 +56,10 @@ impl<Columns: Clone> PgSelectBuilder<Columns> {
         mut self,
         _table: T,
         on: impl FnOnce((Columns, T::Columns)) -> Expr,
-    ) -> PgSelectBuilder<(Columns, T::Columns)> {
+    ) -> PgSelectBuilder<(Columns, T::Columns)>
+    where
+        Columns: Clone,
+    {
         let alias = self.next_alias();
         let right = T::bind_alias(alias.clone());
         let columns = (self.columns, right.clone());
@@ -79,6 +82,7 @@ impl<Columns: Clone> PgSelectBuilder<Columns> {
 
     pub fn filter<P>(mut self, filter: impl FnOnce(Columns) -> P) -> Self
     where
+        Columns: Clone,
         P: IntoIterator<Item = Expr>,
     {
         self.plan.filters.extend(
@@ -90,8 +94,11 @@ impl<Columns: Clone> PgSelectBuilder<Columns> {
         self
     }
 
-    pub fn project<P: Projection>(mut self, project: impl FnOnce(Columns) -> P) -> PgSelect<P> {
-        let projection = project(self.columns.clone());
+    pub fn project<P>(mut self, project: impl FnOnce(Columns) -> P) -> PgSelect<P>
+    where
+        P: Projection,
+    {
+        let projection = project(self.columns);
         self.plan.select = projection
             .select_exprs()
             .into_iter()
@@ -107,7 +114,7 @@ impl<Columns: Clone> PgSelectBuilder<Columns> {
 
 impl<Columns> From<PgSelectBuilder<Columns>> for PgSelect<Columns>
 where
-    Columns: Clone + Projection,
+    Columns: Projection,
 {
     fn from(mut value: PgSelectBuilder<Columns>) -> Self {
         value.plan.select = value

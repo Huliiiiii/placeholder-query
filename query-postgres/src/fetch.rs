@@ -9,27 +9,18 @@ use crate::{
     query::select::{Pg, PgQueryCx, PgSelect, PgStatement},
 };
 
-pub struct PgFetchBatchBuilder<B, K>
-where
-    B: FetchBackend<Request = PgStatement>,
-{
+pub struct PgFetchBatchBuilder<B, K> {
     keys: Vec<K>,
     _backend: PhantomData<fn() -> B>,
 }
 
-pub struct PgBatchSelectBuilder<B, K, P>
-where
-    B: FetchBackend<Request = PgStatement>,
-{
+pub struct PgBatchSelectBuilder<B, K, P> {
     keys: Vec<K>,
     select: PgSelect<P>,
     _backend: PhantomData<fn() -> B>,
 }
 
-pub struct PgKeyedBatch<B, K, V, F, O>
-where
-    B: FetchBackend<Request = PgStatement>,
-{
+pub struct PgKeyedBatch<B, K, V, F, O> {
     keys: Vec<K>,
     statement: PgStatement,
     key: F,
@@ -39,7 +30,6 @@ where
 impl<Row, Error> PgFetchBackend<Row, Error> {
     pub fn batch<K>(keys: &[K]) -> PgFetchBatchBuilder<Self, K>
     where
-        Self: FetchBackend<Request = PgStatement>,
         K: Clone,
     {
         PgFetchBatchBuilder {
@@ -49,10 +39,7 @@ impl<Row, Error> PgFetchBackend<Row, Error> {
     }
 }
 
-impl<B, K> PgFetchBatchBuilder<B, K>
-where
-    B: FetchBackend<Request = PgStatement>,
-{
+impl<B, K> PgFetchBatchBuilder<B, K> {
     pub fn select<P, Q>(
         self,
         build: impl FnOnce(PgQueryCx, &[K]) -> Q,
@@ -72,7 +59,6 @@ where
 
 impl<B, K, P, V> PgBatchSelectBuilder<B, K, P>
 where
-    B: FetchBackend<Request = PgStatement>,
     P: Projection<Output = V>,
 {
     pub fn keyed_by(
@@ -80,6 +66,7 @@ where
         key: impl Fn(&V) -> K + 'static,
     ) -> PgKeyedBatch<B, K, V, impl Fn(&V) -> K + 'static, K::Output>
     where
+        B: FetchBackend,
         K: FetchKey<B>,
     {
         PgKeyedBatch {

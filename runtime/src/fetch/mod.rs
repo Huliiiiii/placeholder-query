@@ -78,7 +78,7 @@ where
     where
         A: 'static,
     {
-        Self::from_step(move |_| FetchStep::Ready(value))
+        Self::from_step(|_| FetchStep::Ready(value))
     }
 
     pub fn map<C>(self, map: impl FnOnce(A) -> C + 'static) -> Fetch<B, C>
@@ -86,7 +86,7 @@ where
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step(move |state| match self.poll(state) {
+        Fetch::from_step(|state| match self.poll(state) {
             FetchStep::Ready(value) => FetchStep::Ready(map(value)),
             FetchStep::Pending(fetch) => FetchStep::Pending(fetch.map(map)),
         })
@@ -97,7 +97,7 @@ where
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step(move |state| {
+        Fetch::from_step(|state| {
             let left = self.poll(state);
             let right = other.poll(state);
 
@@ -282,7 +282,7 @@ where
     B: FetchBackend + 'static,
     K: FetchKey<B>,
 {
-    Fetch::from_step(move |state| {
+    Fetch::from_step(|state| {
         if let Some(value) = state.data_cache.get(&key) {
             return FetchStep::Ready(value);
         }
