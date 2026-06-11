@@ -1,63 +1,57 @@
 use std::{convert::TryFrom, future::Future};
 
-use futures_util::future::try_join_all;
+use indexmap::IndexMap;
 use placeholder_query_core::value::Value;
-use placeholder_query_postgres::{PgFetchBackend, PgStatement};
-use placeholder_query_runtime::{AsyncFetchExecutor, Fetch};
+use placeholder_query_postgres::{PgBackend, PgFetchKey, PgStatement};
+use placeholder_query_runtime::{DataSource, Fetch, FetchEnv};
 use tokio_postgres::{Client, Row, types::ToSql};
-
-pub type FetchBackend = PgFetchBackend<Row, tokio_postgres::Error>;
 
 pub struct Executor {
     client: Client,
 }
 
 impl Executor {
-    pub async fn new(client: Client) -> Self {
+    pub fn new(client: Client) -> Self {
         Self { client }
     }
 
-    pub async fn batch_execute(
-        &mut self,
-        sql: impl AsRef<str>,
-    ) -> Result<(), tokio_postgres::Error> {
+    pub async fn batch_execute(&self, sql: impl AsRef<str>) -> Result<(), tokio_postgres::Error> {
         self.client.batch_execute(sql.as_ref()).await
     }
 
-    pub async fn run<A>(
-        &mut self,
-        fetch: Fetch<FetchBackend, A>,
-    ) -> Result<A, tokio_postgres::Error> {
-        fetch.run_async(self).await
+    pub async fn run<A>(&self, fetch: Fetch<Self, A>) -> Result<A, tokio_postgres::Error> {
+        fetch.run(self).await
     }
 }
 
-impl AsyncFetchExecutor<FetchBackend> for Executor {
+impl FetchEnv for Executor {
     type Error = tokio_postgres::Error;
-
-    fn execute_round(
-        &mut self,
-        statements: Vec<PgStatement>,
-    ) -> impl Future<Output = Result<Vec<Vec<Row>>, Self::Error>> + '_ {
-        execute_round_postgres(&self.client, statements)
-    }
 }
 
-async fn execute_round_postgres(
-    client: &Client,
-    statements: Vec<PgStatement>,
-) -> Result<Vec<Vec<Row>>, tokio_postgres::Error> {
-    try_join_all(
-        statements
-            .into_iter()
-            .map(|statement| execute_statement(client, statement)),
-    )
-    .await
+impl PgBackend for Executor {
+    type Row = Row;
+}
+
+impl<K> DataSource<K> for Executor
+where
+    K: PgFetchKey<Self>,
+{
+    fn batch_fetch<'a>(
+        &'a self,
+        keys: &'a [K],
+    ) -> impl Future<Output = Result<IndexMap<K, K::Output>, Self::Error>> + 'a {
+        async move {
+            let batch = K::batch(keys).into();
+            let rows = execute_statement(&self.client, batch.statement()).await?;
+
+            batch.collect(rows)
+        }
+    }
 }
 
 async fn execute_statement(
     client: &Client,
-    statement: PgStatement,
+    statement: &PgStatement,
 ) -> Result<Vec<Row>, tokio_postgres::Error> {
     let params = statement
         .params

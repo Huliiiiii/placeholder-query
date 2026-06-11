@@ -4,9 +4,10 @@ use placeholder_query_core::{
     projection::{Projection, ProjectionExt},
     table::Table,
 };
-use placeholder_query_runtime::{FetchBatch, FetchKey};
-
-use crate::backend::{TestPostgresBackend, TestRow};
+use placeholder_query_postgres::{Pg, PgFetchBatch, PgFetchKey};
+use placeholder_query_runtime::FetchKey;
+use placeholder_query_tokio_postgres::Executor;
+use tokio_postgres::Row;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct User {
@@ -20,11 +21,13 @@ pub struct UserById {
     pub id: i32,
 }
 
-impl FetchKey<TestPostgresBackend> for UserById {
+impl FetchKey for UserById {
     type Output = Option<User>;
+}
 
-    fn batch(keys: &[Self]) -> impl Into<FetchBatch<TestPostgresBackend, Self>> {
-        TestPostgresBackend::batch(keys)
+impl PgFetchKey<Executor> for UserById {
+    fn batch(keys: &[Self]) -> impl Into<PgFetchBatch<Executor, Self>> {
+        Pg.batch(keys)
             .select(|q, keys| {
                 q.from(users::table())
                     .filter(|user| user.id().in_(keys.iter().map(|key| key.id)))
@@ -50,11 +53,13 @@ pub struct UserCardById {
     pub id: i32,
 }
 
-impl FetchKey<TestPostgresBackend> for UserCardById {
+impl FetchKey for UserCardById {
     type Output = Option<UserCard>;
+}
 
-    fn batch(keys: &[Self]) -> impl Into<FetchBatch<TestPostgresBackend, Self>> {
-        TestPostgresBackend::batch(keys)
+impl PgFetchKey<Executor> for UserCardById {
+    fn batch(keys: &[Self]) -> impl Into<PgFetchBatch<Executor, Self>> {
+        Pg.batch(keys)
             .select(|q, keys| {
                 q.from(users::table())
                     .filter(|user| user.id().in_(keys.iter().map(|key| key.id)))
@@ -95,11 +100,13 @@ pub struct PostWithAuthorById {
     pub id: i32,
 }
 
-impl FetchKey<TestPostgresBackend> for PostWithAuthorById {
+impl FetchKey for PostWithAuthorById {
     type Output = Option<PostWithAuthor>;
+}
 
-    fn batch(keys: &[Self]) -> impl Into<FetchBatch<TestPostgresBackend, Self>> {
-        TestPostgresBackend::batch(keys)
+impl PgFetchKey<Executor> for PostWithAuthorById {
+    fn batch(keys: &[Self]) -> impl Into<PgFetchBatch<Executor, Self>> {
+        Pg.batch(keys)
             .select(|q, keys| {
                 q.from(posts::table())
                     .join(users::table(), |(post, author)| {
@@ -124,11 +131,13 @@ pub struct PostCommentsByPostId {
     pub post_id: i32,
 }
 
-impl FetchKey<TestPostgresBackend> for PostCommentsByPostId {
+impl FetchKey for PostCommentsByPostId {
     type Output = Vec<PostComment>;
+}
 
-    fn batch(keys: &[Self]) -> impl Into<FetchBatch<TestPostgresBackend, Self>> {
-        TestPostgresBackend::batch(keys)
+impl PgFetchKey<Executor> for PostCommentsByPostId {
+    fn batch(keys: &[Self]) -> impl Into<PgFetchBatch<Executor, Self>> {
+        Pg.batch(keys)
             .select(|q, keys| {
                 q.from(post_comments::table())
                     .filter(|comment| comment.post_id().in_(keys.iter().map(|key| key.post_id)))
@@ -139,54 +148,50 @@ impl FetchKey<TestPostgresBackend> for PostCommentsByPostId {
     }
 }
 
-impl TryFrom<TestRow> for User {
-    type Error = std::convert::Infallible;
+impl TryFrom<Row> for User {
+    type Error = tokio_postgres::Error;
 
-    fn try_from(row: TestRow) -> Result<Self, Self::Error> {
-        let TestRow::User(user) = row else {
-            panic!("expected user row in api example test")
-        };
-
-        Ok(user)
-    }
-}
-
-impl TryFrom<TestRow> for UserCard {
-    type Error = std::convert::Infallible;
-
-    fn try_from(row: TestRow) -> Result<Self, Self::Error> {
-        let TestRow::User(user) = row else {
-            panic!("expected user row for user card in api example test")
-        };
-
-        Ok(UserCard {
-            id: user.id,
-            display_name: user.name,
+    fn try_from(row: Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            email: row.try_get("email")?,
         })
     }
 }
 
-impl TryFrom<TestRow> for PostWithAuthor {
-    type Error = std::convert::Infallible;
+impl TryFrom<Row> for UserCard {
+    type Error = tokio_postgres::Error;
 
-    fn try_from(row: TestRow) -> Result<Self, Self::Error> {
-        let TestRow::PostWithAuthor(post) = row else {
-            panic!("expected post-with-author row in api example test")
-        };
-
-        Ok(post)
+    fn try_from(row: Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            display_name: row.try_get("name")?,
+        })
     }
 }
 
-impl TryFrom<TestRow> for PostComment {
-    type Error = std::convert::Infallible;
+impl TryFrom<Row> for PostWithAuthor {
+    type Error = tokio_postgres::Error;
 
-    fn try_from(row: TestRow) -> Result<Self, Self::Error> {
-        let TestRow::PostComment(comment) = row else {
-            panic!("expected post comment row in api example test")
-        };
+    fn try_from(row: Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            post_id: row.try_get("id")?,
+            title: row.try_get("title")?,
+            author_name: row.try_get("name")?,
+        })
+    }
+}
 
-        Ok(comment)
+impl TryFrom<Row> for PostComment {
+    type Error = tokio_postgres::Error;
+
+    fn try_from(row: Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            post_id: row.try_get("post_id")?,
+            body: row.try_get("body")?,
+        })
     }
 }
 

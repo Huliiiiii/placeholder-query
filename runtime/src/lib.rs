@@ -1,5 +1,5 @@
 mod batch;
 mod fetch;
 
-pub use batch::{FetchBackend, FetchBatch, FetchKey};
-pub use fetch::{AsyncFetchExecutor, Fetch, FetchCx, FetchExecutor};
+pub use batch::{DataSource, FetchEnv, FetchKey};
+pub use fetch::{Fetch, FetchCx};

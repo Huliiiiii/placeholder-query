@@ -1,75 +1,112 @@
 pub(crate) mod data_cache;
 mod request_store;
 
-use std::{future::Future, marker::PhantomData};
+use std::marker::PhantomData;
 
-use crate::batch::{FetchBackend, FetchKey};
+use crate::batch::{DataSource, FetchEnv, FetchKey};
 
 use data_cache::DataCache;
 use request_store::RequestStore;
 
-pub struct FetchCx<B>
-where
-    B: FetchBackend,
-{
-    _backend: PhantomData<fn() -> B>,
+pub struct FetchCx<E> {
+    _env: PhantomData<fn() -> E>,
 }
 
-type StepFn<B, A> = Box<dyn FnOnce(&mut FetchState<B>) -> FetchStep<B, A>>;
+type StepFn<E, A> = Box<dyn FnOnce(&mut FetchState<E>) -> Step<E, A>>;
 
-pub struct Fetch<B, A>
-where
-    B: FetchBackend,
-{
-    step: StepFn<B, A>,
+pub struct Fetch<E, A> {
+    step: StepFn<E, A>,
 }
 
-struct FetchState<B>
-where
-    B: FetchBackend,
-{
-    data_cache: DataCache<B>,
-    requests: RequestStore<B>,
+struct FetchState<E> {
+    data_cache: DataCache,
+    requests: RequestStore<E>,
 }
 
-enum FetchStep<B, A>
-where
-    B: FetchBackend,
-{
+enum Step<E, A> {
     Ready(A),
-    Pending(Fetch<B, A>),
+    Blocked(StepFn<E, A>),
 }
 
-pub trait FetchExecutor<B>
-where
-    B: FetchBackend,
-{
-    type Error;
-
-    fn execute_round(&mut self, requests: Vec<B::Request>)
-    -> Result<Vec<Vec<B::Row>>, Self::Error>;
+impl<E, A> Step<E, A> {
+    fn resume(self, state: &mut FetchState<E>) -> Self {
+        match self {
+            Step::Ready(value) => Step::Ready(value),
+            Step::Blocked(task) => task(state),
+        }
+    }
 }
 
-pub trait AsyncFetchExecutor<B>
+impl<E, A> Step<E, A>
 where
-    B: FetchBackend,
+    E: 'static,
+    A: 'static,
 {
-    type Error;
+    fn map<C>(self, map: impl FnOnce(A) -> C + 'static) -> Step<E, C>
+    where
+        C: 'static,
+    {
+        match self {
+            Step::Ready(value) => Step::Ready(map(value)),
+            Step::Blocked(task) => Step::Blocked(Box::new(|state| task(state).map(map))),
+        }
+    }
 
-    fn execute_round(
-        &mut self,
-        requests: Vec<B::Request>,
-    ) -> impl Future<Output = Result<Vec<Vec<B::Row>>, Self::Error>> + '_;
+    fn and_then<C>(
+        self,
+        then: impl FnOnce(A, &FetchCx<E>) -> Fetch<E, C> + 'static,
+        state: &mut FetchState<E>,
+    ) -> Step<E, C>
+    where
+        C: 'static,
+    {
+        match self {
+            Step::Ready(value) => {
+                let cx = FetchCx::new();
+                then(value, &cx).poll(state)
+            }
+            Step::Blocked(task) => {
+                Step::Blocked(Box::new(|state| task(state).and_then(then, state)))
+            }
+        }
+    }
+
+    fn zip<C>(self, other: Step<E, C>) -> Step<E, (A, C)>
+    where
+        C: 'static,
+    {
+        match (self, other) {
+            (Step::Ready(left), Step::Ready(right)) => Step::Ready((left, right)),
+            (left, right) => Step::Blocked(Box::new(|state| {
+                left.resume(state).zip(right.resume(state))
+            })),
+        }
+    }
+
+    fn collect(items: Vec<Self>) -> Step<E, Vec<A>> {
+        if items.iter().all(|item| matches!(item, Step::Ready(_))) {
+            Step::Ready(
+                items
+                    .into_iter()
+                    .map(|item| match item {
+                        Step::Ready(value) => value,
+                        Step::Blocked(_) => unreachable!("all traverse items should be ready"),
+                    })
+                    .collect(),
+            )
+        } else {
+            Step::Blocked(Box::new(|state| {
+                let items = items.into_iter().map(|item| item.resume(state)).collect();
+
+                Step::collect(items)
+            }))
+        }
+    }
 }
 
-impl<B, A> Fetch<B, A>
-where
-    B: FetchBackend + 'static,
-{
-    pub fn new(build: impl FnOnce(&FetchCx<B>) -> Fetch<B, A>) -> Self {
-        let cx = FetchCx {
-            _backend: PhantomData,
-        };
+impl<E, A> Fetch<E, A> {
+    pub fn new(build: impl FnOnce(&FetchCx<E>) -> Fetch<E, A>) -> Self {
+        let cx = FetchCx::new();
 
         build(&cx)
     }
@@ -78,216 +115,130 @@ where
     where
         A: 'static,
     {
-        Self::from_step(|_| FetchStep::Ready(value))
+        Self::from_step_fn(|_| Step::Ready(value))
     }
 
-    pub fn map<C>(self, map: impl FnOnce(A) -> C + 'static) -> Fetch<B, C>
+    pub fn map<C>(self, map: impl FnOnce(A) -> C + 'static) -> Fetch<E, C>
     where
+        E: 'static,
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step(|state| match self.poll(state) {
-            FetchStep::Ready(value) => FetchStep::Ready(map(value)),
-            FetchStep::Pending(fetch) => FetchStep::Pending(fetch.map(map)),
-        })
+        Fetch::from_step_fn(|state| self.poll(state).map(map))
     }
 
-    pub fn zip<C>(self, other: Fetch<B, C>) -> Fetch<B, (A, C)>
+    pub fn zip<C>(self, other: Fetch<E, C>) -> Fetch<E, (A, C)>
     where
+        E: 'static,
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step(|state| {
-            let left = self.poll(state);
-            let right = other.poll(state);
-
-            match (left, right) {
-                (FetchStep::Ready(left), FetchStep::Ready(right)) => {
-                    FetchStep::Ready((left, right))
-                }
-                (FetchStep::Pending(left), FetchStep::Ready(right)) => {
-                    FetchStep::Pending(left.zip(Fetch::pure(right)))
-                }
-                (FetchStep::Ready(left), FetchStep::Pending(right)) => {
-                    FetchStep::Pending(Fetch::pure(left).zip(right))
-                }
-                (FetchStep::Pending(left), FetchStep::Pending(right)) => {
-                    FetchStep::Pending(left.zip(right))
-                }
-            }
-        })
+        Fetch::from_step_fn(|state| self.poll(state).zip(other.poll(state)))
     }
 
     pub fn and_then<C>(
         self,
-        then: impl FnOnce(A, &FetchCx<B>) -> Fetch<B, C> + 'static,
-    ) -> Fetch<B, C>
+        then: impl FnOnce(A, &FetchCx<E>) -> Fetch<E, C> + 'static,
+    ) -> Fetch<E, C>
     where
+        E: 'static,
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step(|state| match self.poll(state) {
-            FetchStep::Ready(value) => {
-                let cx = FetchCx {
-                    _backend: PhantomData,
-                };
-                then(value, &cx).poll(state)
-            }
-            FetchStep::Pending(fetch) => FetchStep::Pending(fetch.and_then(then)),
-        })
+        Fetch::from_step_fn(|state| self.poll(state).and_then(then, state))
     }
 
-    fn from_step(step: impl FnOnce(&mut FetchState<B>) -> FetchStep<B, A> + 'static) -> Self {
+    fn from_step_fn(step: impl FnOnce(&mut FetchState<E>) -> Step<E, A> + 'static) -> Self {
         Self {
             step: Box::new(step),
         }
     }
 
-    fn poll(self, state: &mut FetchState<B>) -> FetchStep<B, A> {
+    fn poll(self, state: &mut FetchState<E>) -> Step<E, A> {
         (self.step)(state)
     }
 }
 
-impl<B, A> Fetch<B, A>
+impl<E, A> Fetch<E, A>
 where
-    B: FetchBackend + 'static,
+    E: FetchEnv + 'static,
 {
-    pub fn run<E>(self, executor: &mut impl FetchExecutor<B, Error = E>) -> Result<A, E>
-    where
-        E: From<B::Error>,
-    {
-        self.run_with_executor(executor)
-    }
-
-    pub async fn run_async<E>(
-        self,
-        executor: &mut impl AsyncFetchExecutor<B, Error = E>,
-    ) -> Result<A, E>
-    where
-        E: From<B::Error>,
-    {
-        let mut state = FetchState::new();
-        let mut fetch = self;
+    pub async fn run(self, env: &E) -> Result<A, E::Error> {
+        let mut state = FetchState {
+            data_cache: DataCache::default(),
+            requests: RequestStore::default(),
+        };
+        let mut step = self.poll(&mut state);
 
         loop {
-            match fetch.poll(&mut state) {
-                FetchStep::Ready(value) => return Ok(value),
-                FetchStep::Pending(next_fetch) => {
-                    let requests = state.take_requests();
+            match step {
+                Step::Ready(value) => return Ok(value),
+                Step::Blocked(task) => {
+                    let requests = std::mem::take(&mut state.requests);
                     assert!(
                         !requests.is_empty(),
                         "fetch made no progress while waiting for a round"
                     );
-                    requests
-                        .execute_round_async(executor, &mut state.data_cache)
-                        .await?;
-                    fetch = next_fetch;
-                }
-            }
-        }
-    }
-
-    pub fn run_with<E>(
-        self,
-        execute_round: impl FnMut(Vec<B::Request>) -> Result<Vec<Vec<B::Row>>, E>,
-    ) -> Result<A, E>
-    where
-        E: From<B::Error>,
-    {
-        self.run_loop(execute_round)
-    }
-
-    fn run_with_executor<E>(self, executor: &mut impl FetchExecutor<B, Error = E>) -> Result<A, E>
-    where
-        E: From<B::Error>,
-    {
-        self.run_loop(|requests| executor.execute_round(requests))
-    }
-
-    fn run_loop<E>(
-        self,
-        mut execute_round: impl FnMut(Vec<B::Request>) -> Result<Vec<Vec<B::Row>>, E>,
-    ) -> Result<A, E>
-    where
-        E: From<B::Error>,
-    {
-        let mut state = FetchState::new();
-        let mut fetch = self;
-
-        loop {
-            match fetch.poll(&mut state) {
-                FetchStep::Ready(value) => return Ok(value),
-                FetchStep::Pending(next_fetch) => {
-                    let requests = state.take_requests();
-                    assert!(
-                        !requests.is_empty(),
-                        "fetch made no progress while waiting for a round"
-                    );
-                    requests.execute_round(&mut execute_round, &mut state.data_cache)?;
-                    fetch = next_fetch;
+                    requests.execute_round(env, &mut state.data_cache).await?;
+                    step = task(&mut state);
                 }
             }
         }
     }
 }
 
-impl<B> FetchCx<B>
-where
-    B: FetchBackend + 'static,
-{
-    pub fn fetch<K>(&self, key: K) -> Fetch<B, K::Output>
+impl<E> FetchCx<E> {
+    fn new() -> Self {
+        Self { _env: PhantomData }
+    }
+
+    pub fn fetch<K>(&self, key: K) -> Fetch<E, K::Output>
     where
-        K: FetchKey<B>,
+        E: DataSource<K> + 'static,
+        K: FetchKey,
     {
-        fetch_key(key)
+        Fetch::from_step_fn(move |state| {
+            if let Some(value) = state.data_cache.get(&key) {
+                return Step::Ready(value);
+            }
+
+            state.requests.insert(&key);
+            Step::Blocked(Box::new(move |state| {
+                Step::Ready(
+                    state
+                        .data_cache
+                        .get(&key)
+                        .expect("fetch key should be available after request round"),
+                )
+            }))
+        })
     }
 
     pub fn traverse<T, C>(
         &self,
         items: impl IntoIterator<Item = T>,
-        fetch: impl Fn(T, &FetchCx<B>) -> Fetch<B, C>,
-    ) -> Fetch<B, Vec<C>>
+        fetch: impl Fn(T, &FetchCx<E>) -> Fetch<E, C>,
+    ) -> Fetch<E, Vec<C>>
     where
+        E: 'static,
         C: 'static,
     {
-        items
+        let fetches = items
             .into_iter()
-            .fold(Fetch::pure(Vec::new()), |acc, item| {
-                acc.zip(fetch(item, self)).map(|(mut items, item)| {
-                    items.push(item);
-                    items
-                })
-            })
-    }
-}
+            .map(|item| fetch(item, self))
+            .collect::<Vec<_>>();
 
-impl<B> FetchState<B>
-where
-    B: FetchBackend + 'static,
-{
-    fn new() -> Self {
-        Self {
-            data_cache: DataCache::new(),
-            requests: RequestStore::new(),
-        }
-    }
-
-    fn take_requests(&mut self) -> RequestStore<B> {
-        std::mem::replace(&mut self.requests, RequestStore::new())
-    }
-}
-
-fn fetch_key<B, K>(key: K) -> Fetch<B, K::Output>
-where
-    B: FetchBackend + 'static,
-    K: FetchKey<B>,
-{
-    Fetch::from_step(|state| {
-        if let Some(value) = state.data_cache.get(&key) {
-            return FetchStep::Ready(value);
+        if fetches.is_empty() {
+            return Fetch::pure(Vec::new());
         }
 
-        state.requests.insert(key.clone());
-        FetchStep::Pending(fetch_key(key))
-    })
+        Fetch::from_step_fn(|state| {
+            let items = fetches
+                .into_iter()
+                .map(|fetch| fetch.poll(state))
+                .collect::<Vec<_>>();
+
+            Step::collect(items)
+        })
+    }
 }

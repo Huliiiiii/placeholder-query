@@ -1,67 +1,49 @@
 use std::{
     any::{Any, TypeId},
-    marker::PhantomData,
+    collections::HashMap,
 };
 
-use indexmap::IndexMap;
+use crate::batch::FetchKey;
 
-use crate::batch::{FetchBackend, FetchKey};
+type Bucket<K> = HashMap<K, <K as FetchKey>::Output>;
 
-pub(crate) struct DataCache<B>
-where
-    B: FetchBackend,
-{
-    buckets: IndexMap<TypeId, Box<dyn Any>>,
-    _builder: PhantomData<fn() -> B>,
+pub(crate) struct DataCache {
+    buckets: HashMap<TypeId, Box<dyn Any>>,
 }
 
-impl<B> DataCache<B>
-where
-    B: FetchBackend,
-{
-    pub(crate) fn new() -> Self {
-        Self {
-            buckets: IndexMap::new(),
-            _builder: PhantomData,
-        }
-    }
-
+impl DataCache {
     pub(crate) fn get<K>(&self, key: &K) -> Option<K::Output>
     where
-        K: FetchKey<B>,
+        K: FetchKey,
     {
         let bucket = self.buckets.get(&TypeId::of::<K>())?;
-        let bucket = bucket
-            .downcast_ref::<KeyCacheBucket<K, K::Output>>()
+        let values = bucket
+            .downcast_ref::<Bucket<K>>()
             .expect("data cache bucket type should match fetch key type");
 
-        bucket.values.get(key).cloned()
+        values.get(key).cloned()
     }
 
     pub(crate) fn insert<K>(&mut self, key: K, value: K::Output)
     where
-        K: FetchKey<B>,
+        K: FetchKey,
     {
         let bucket = self
             .buckets
             .entry(TypeId::of::<K>())
-            .or_insert_with(|| Box::new(KeyCacheBucket::<K, K::Output>::new()));
-        let bucket = bucket
-            .downcast_mut::<KeyCacheBucket<K, K::Output>>()
+            .or_insert_with(|| Box::new(Bucket::<K>::new()));
+        let values = bucket
+            .downcast_mut::<Bucket<K>>()
             .expect("data cache bucket type should match fetch key type");
 
-        bucket.values.insert(key, value);
+        values.insert(key, value);
     }
 }
 
-struct KeyCacheBucket<K, O> {
-    values: IndexMap<K, O>,
-}
-
-impl<K, O> KeyCacheBucket<K, O> {
-    fn new() -> Self {
+impl Default for DataCache {
+    fn default() -> Self {
         Self {
-            values: IndexMap::new(),
+            buckets: HashMap::new(),
         }
     }
 }

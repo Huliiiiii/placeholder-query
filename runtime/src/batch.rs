@@ -1,48 +1,21 @@
-use std::hash::Hash;
+use std::{future::Future, hash::Hash};
 
 use indexmap::IndexMap;
 
-type KeyCollectFn<B, K> =
-    dyn FnOnce(
-        Vec<<B as FetchBackend>::Row>,
-    ) -> Result<IndexMap<K, <K as FetchKey<B>>::Output>, <B as FetchBackend>::Error>;
+pub trait FetchKey: Clone + Eq + Hash + 'static {
+    type Output: Clone + 'static;
+}
 
-pub trait FetchBackend {
-    type Request;
-    type Row;
+pub trait FetchEnv {
     type Error;
 }
 
-pub trait FetchKey<B>: Clone + Eq + Hash + 'static
+pub trait DataSource<K>: FetchEnv
 where
-    B: FetchBackend,
+    K: FetchKey,
 {
-    type Output: Clone + 'static;
-
-    fn batch(keys: &[Self]) -> impl Into<FetchBatch<B, Self>>;
-}
-
-pub struct FetchBatch<B, K>
-where
-    B: FetchBackend,
-    K: FetchKey<B>,
-{
-    pub(crate) request: B::Request,
-    pub(crate) collect: Box<KeyCollectFn<B, K>>,
-}
-
-impl<B, K> FetchBatch<B, K>
-where
-    B: FetchBackend,
-    K: FetchKey<B>,
-{
-    pub fn new(
-        request: B::Request,
-        collect: impl FnOnce(Vec<B::Row>) -> Result<IndexMap<K, K::Output>, B::Error> + 'static,
-    ) -> Self {
-        Self {
-            request,
-            collect: Box::new(collect),
-        }
-    }
+    fn batch_fetch<'a>(
+        &'a self,
+        keys: &'a [K],
+    ) -> impl Future<Output = Result<IndexMap<K, K::Output>, Self::Error>> + 'a;
 }
