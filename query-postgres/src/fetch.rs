@@ -1,10 +1,13 @@
 use std::marker::PhantomData;
 
 use indexmap::IndexMap;
-use placeholder_query_core::projection::Projection;
 use placeholder_query_runtime::{FetchEnv, FetchKey};
 
-use crate::query::select::{Pg, PgQueryCx, PgSelect, PgStatement};
+use crate::{
+    backend::Pg,
+    query::{PgQueryCx, Projection, select::PgSelect},
+    statement::PgStatement,
+};
 
 type PgCollectFn<B, K> =
     dyn FnOnce(

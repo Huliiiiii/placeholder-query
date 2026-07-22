@@ -1,13 +1,23 @@
 use std::fmt::Write;
 
-use placeholder_query_core::{
-    expr::{BinaryOp, ColumnRef, ExprArena, ExprId, ExprNode},
-    value::Value,
-};
+use placeholder_query_core::expr::{ColumnRef, ExprArena, ExprId, ExprNode};
 
 use crate::utils::JoinWrite;
 
-use super::plan::{PgSelectPlan, PgStatement};
+use crate::{
+    backend::Pg,
+    query::operator::{BinaryOp, UnaryOp},
+    statement::PgStatement,
+    value::Value,
+};
+
+use super::plan::PgSelectPlan;
+
+impl Pg {
+    pub fn build(&self, plan: &PgSelectPlan) -> PgStatement {
+        render_select_plan(plan)
+    }
+}
 
 pub(crate) fn render_select_plan(plan: &PgSelectPlan) -> PgStatement {
     let mut params = Vec::new();
@@ -49,57 +59,98 @@ pub(crate) fn render_select_plan(plan: &PgSelectPlan) -> PgStatement {
     PgStatement { sql, params }
 }
 
-fn render_expr(sql: &mut String, exprs: &ExprArena, id: ExprId, params: &mut Vec<Value>) {
+fn render_expr(sql: &mut String, exprs: &ExprArena<Pg>, id: ExprId, params: &mut Vec<Value>) {
     match exprs.get(id) {
         ExprNode::Column(column_ref) => render_column(sql, column_ref),
-        ExprNode::Value(value) => {
-            params.push(value.clone());
-            write!(sql, "${}", params.len()).unwrap();
-        }
+        ExprNode::Value(value) => render_value(sql, value, params),
         ExprNode::Values(values) => render_values(sql, values, params),
-        ExprNode::Binary { op, left, right } => match op {
-            BinaryOp::And => {
-                sql.write_str("(").unwrap();
-                render_expr(sql, exprs, *left, params);
-                sql.write_str(" AND ").unwrap();
-                render_expr(sql, exprs, *right, params);
-                sql.write_str(")").unwrap();
-            }
-            BinaryOp::Or => {
-                sql.write_str("(").unwrap();
-                render_expr(sql, exprs, *left, params);
-                sql.write_str(" OR ").unwrap();
-                render_expr(sql, exprs, *right, params);
-                sql.write_str(")").unwrap();
-            }
-            BinaryOp::Eq => {
-                render_expr(sql, exprs, *left, params);
-                sql.write_str(" = ").unwrap();
-                render_expr(sql, exprs, *right, params);
-            }
-            BinaryOp::In => {
-                render_expr(sql, exprs, *left, params);
-                sql.write_str(" IN (").unwrap();
-                render_expr(sql, exprs, *right, params);
-                sql.write_str(")").unwrap();
-            }
-            BinaryOp::Like => {
-                render_expr(sql, exprs, *left, params);
-                sql.write_str(" LIKE ").unwrap();
-                render_expr(sql, exprs, *right, params);
-            }
-        },
+        ExprNode::Unary { op, expr } => render_unary(sql, exprs, op, *expr, params),
+        ExprNode::Binary { op, left, right } => {
+            render_binary(sql, exprs, op, *left, *right, params)
+        }
     }
 }
 
-fn render_values(sql: &mut String, values: &[Value], params: &mut Vec<Value>) {
-    for (index, value) in values.iter().enumerate() {
-        if index > 0 {
-            sql.write_str(", ").unwrap();
-        }
+fn render_value(sql: &mut String, value: &Value, params: &mut Vec<Value>) {
+    params.push(value.clone());
+    write!(sql, "${}", params.len()).unwrap();
+}
 
-        params.push(value.clone());
-        write!(sql, "${}", params.len()).unwrap();
+fn render_values(sql: &mut String, values: &[Value], params: &mut Vec<Value>) {
+    JoinWrite {
+        buf: sql,
+        items: values,
+        at_first: |_| Ok(()),
+        r#do: |sql, value| {
+            render_value(sql, value, params);
+            Ok(())
+        },
+        join: |sql| sql.write_str(", "),
+        at_last: |_| Ok(()),
+    }
+    .exec()
+    .unwrap();
+}
+
+fn render_unary(
+    sql: &mut String,
+    exprs: &ExprArena<Pg>,
+    op: &UnaryOp,
+    expr: ExprId,
+    params: &mut Vec<Value>,
+) {
+    match op {
+        UnaryOp::Not => {
+            sql.write_str("NOT (").unwrap();
+            render_expr(sql, exprs, expr, params);
+            sql.write_str(")").unwrap();
+        }
+    }
+}
+
+fn render_binary(
+    sql: &mut String,
+    exprs: &ExprArena<Pg>,
+    op: &BinaryOp,
+    left: ExprId,
+    right: ExprId,
+    params: &mut Vec<Value>,
+) {
+    match op {
+        BinaryOp::And => {
+            sql.write_str("(").unwrap();
+            render_expr(sql, exprs, left, params);
+            sql.write_str(" AND ").unwrap();
+            render_expr(sql, exprs, right, params);
+            sql.write_str(")").unwrap();
+        }
+        BinaryOp::Or => {
+            sql.write_str("(").unwrap();
+            render_expr(sql, exprs, left, params);
+            sql.write_str(" OR ").unwrap();
+            render_expr(sql, exprs, right, params);
+            sql.write_str(")").unwrap();
+        }
+        BinaryOp::Eq => {
+            render_expr(sql, exprs, left, params);
+            sql.write_str(" = ").unwrap();
+            render_expr(sql, exprs, right, params);
+        }
+        BinaryOp::In => {
+            if matches!(exprs.get(right), ExprNode::Values(values) if values.is_empty()) {
+                sql.write_str("FALSE").unwrap();
+            } else {
+                render_expr(sql, exprs, left, params);
+                sql.write_str(" IN (").unwrap();
+                render_expr(sql, exprs, right, params);
+                sql.write_str(")").unwrap();
+            }
+        }
+        BinaryOp::Like => {
+            render_expr(sql, exprs, left, params);
+            sql.write_str(" LIKE ").unwrap();
+            render_expr(sql, exprs, right, params);
+        }
     }
 }
 

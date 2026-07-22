@@ -1,10 +1,6 @@
-use placeholder_query_core::{
-    column::Column,
-    expr::{Expr, Ident},
-    projection::{Projection, ProjectionExt},
-    table::Table,
+use placeholder_query_postgres::{
+    Column, Expr, Ident, Pg, PgFetchBatch, PgFetchKey, Projection, ProjectionExt, Table,
 };
-use placeholder_query_postgres::{Pg, PgFetchBatch, PgFetchKey};
 use placeholder_query_runtime::FetchKey;
 use placeholder_query_tokio_postgres::Executor;
 use tokio_postgres::Row;

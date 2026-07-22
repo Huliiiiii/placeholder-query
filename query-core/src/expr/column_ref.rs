@@ -1,6 +1,4 @@
-use std::borrow::Cow;
-
-pub type Ident = Cow<'static, str>;
+use crate::ident::Ident;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ColumnRef {

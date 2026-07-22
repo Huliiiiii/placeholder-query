@@ -1,5 +1,5 @@
+mod column_ref;
 mod expr;
-mod ident;
 
-pub use expr::{BinaryOp, Expr, ExprArena, ExprId, ExprNode};
-pub use ident::{ColumnRef, Ident};
+pub use column_ref::ColumnRef;
+pub use expr::{Expr, ExprArena, ExprId, ExprNode};

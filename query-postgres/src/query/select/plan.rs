@@ -1,15 +1,9 @@
 use placeholder_query_core::{
-    expr::{ExprArena, ExprId, Ident},
-    value::Value,
+    expr::{ExprArena, ExprId},
+    ident::Ident,
 };
 
-use super::builder::Pg;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct PgStatement {
-    pub sql: String,
-    pub params: Vec<Value>,
-}
+use crate::{backend::Pg, statement::PgStatement};
 
 #[derive(Clone, Debug)]
 pub struct PgSelect<P> {
@@ -31,7 +25,7 @@ impl<P> From<PgSelect<P>> for PgSelectPlan {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PgSelectPlan {
-    pub(crate) exprs: ExprArena,
+    pub(crate) exprs: ExprArena<Pg>,
     pub(crate) from: PgTableRef,
     pub(crate) joins: Vec<PgJoin>,
     pub(crate) filters: Vec<ExprId>,

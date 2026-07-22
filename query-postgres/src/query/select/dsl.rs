@@ -1,27 +1,25 @@
-use placeholder_query_core::{
-    expr::{Expr, Ident},
-    projection::Projection,
-    table::Table,
+use placeholder_query_core::ident::Ident;
+
+use crate::{
+    backend::Pg,
+    query::{Expr, PgQueryCx, Projection, Table},
 };
 
 use super::{
-    builder::Pg,
     plan::{PgJoin, PgSelect, PgSelectBuilder, PgSelectPlan, PgTableRef},
+    predicate::IntoPredicates,
 };
 
-#[derive(Clone, Copy, Debug)]
-pub struct PgQueryCx;
+fn table_alias(index: usize) -> Ident {
+    format!("t{index}").into()
+}
 
 impl Pg {
-    pub fn query<Q>(&self, build: impl FnOnce(PgQueryCx) -> Q) -> Q {
-        build(PgQueryCx)
-    }
-
     pub fn select<P, Q>(&self, build: impl FnOnce(PgQueryCx) -> Q) -> PgSelect<P>
     where
         Q: Into<PgSelect<P>>,
     {
-        self.query(build).into()
+        build(PgQueryCx).into()
     }
 
     pub fn from<T: Table>(self, _table: T) -> PgSelectBuilder<T::Columns> {
@@ -31,7 +29,7 @@ impl Pg {
 
 impl PgQueryCx {
     pub fn from<T: Table>(self, _table: T) -> PgSelectBuilder<T::Columns> {
-        let alias: Ident = "t0".into();
+        let alias = table_alias(0);
         let columns = T::bind_alias(alias.clone());
 
         PgSelectBuilder {
@@ -47,7 +45,7 @@ impl PgQueryCx {
 
 impl<Columns> PgSelectBuilder<Columns> {
     fn next_alias(&mut self) -> Ident {
-        let alias = format!("t{}", self.alias_count).into();
+        let alias = table_alias(self.alias_count);
         self.alias_count += 1;
         alias
     }
@@ -63,7 +61,7 @@ impl<Columns> PgSelectBuilder<Columns> {
         let alias = self.next_alias();
         let right = T::bind_alias(alias.clone());
         let columns = (self.columns, right.clone());
-        let on = self.plan.exprs.append(on(columns.clone()));
+        let on = self.plan.exprs.append(on(columns.clone()).into());
 
         self.plan.joins.push(PgJoin {
             table: PgTableRef {
@@ -83,12 +81,12 @@ impl<Columns> PgSelectBuilder<Columns> {
     pub fn filter<P>(mut self, filter: impl FnOnce(Columns) -> P) -> Self
     where
         Columns: Clone,
-        P: IntoIterator<Item = Expr>,
+        P: IntoPredicates,
     {
         self.plan.filters.extend(
             filter(self.columns.clone())
-                .into_iter()
-                .map(|expr| self.plan.exprs.append(expr)),
+                .into_predicates()
+                .map(|expr| self.plan.exprs.append(expr.into())),
         );
 
         self
@@ -102,7 +100,7 @@ impl<Columns> PgSelectBuilder<Columns> {
         self.plan.select = projection
             .select_exprs()
             .into_iter()
-            .map(|expr| self.plan.exprs.append(expr))
+            .map(|expr| self.plan.exprs.append(expr.into()))
             .collect();
 
         PgSelect {
@@ -121,7 +119,7 @@ where
             .columns
             .select_exprs()
             .into_iter()
-            .map(|expr| value.plan.exprs.append(expr))
+            .map(|expr| value.plan.exprs.append(expr.into()))
             .collect();
 
         PgSelect {

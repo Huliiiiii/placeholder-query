@@ -1,17 +1,21 @@
 use std::marker::PhantomData;
 
 use crate::{
-    expr::{BinaryOp, ColumnRef, Expr, ExprNode, Ident},
-    value::Value,
+    backend::QueryBackend,
+    expr::{ColumnRef, Expr, ExprNode},
+    ident::Ident,
 };
 
 #[derive(Debug)]
-pub struct Column<T> {
+pub struct Column<B: QueryBackend, T> {
     column_ref: ColumnRef,
-    _value: PhantomData<fn() -> T>,
+    _value: PhantomData<fn() -> (B, T)>,
 }
 
-impl<T> Column<T> {
+impl<B, T> Column<B, T>
+where
+    B: QueryBackend,
+{
     pub fn new(table_alias: impl Into<Ident>, name: impl Into<Ident>) -> Self {
         Self {
             column_ref: ColumnRef {
@@ -22,36 +26,32 @@ impl<T> Column<T> {
             _value: PhantomData,
         }
     }
-
-    pub fn eq(self, right: impl Into<Expr>) -> Expr {
-        self.binary(BinaryOp::Eq, right)
-    }
-
-    pub fn in_(self, values: impl IntoIterator<Item = impl Into<Value>>) -> Expr {
-        self.binary(BinaryOp::In, Expr::values(values))
-    }
-
-    fn binary(self, op: BinaryOp, right: impl Into<Expr>) -> Expr {
-        Expr::binary(op, self.into(), right)
-    }
 }
 
-impl<T> From<Column<T>> for ExprNode {
-    fn from(value: Column<T>) -> Self {
+impl<B, T> From<Column<B, T>> for ExprNode<B>
+where
+    B: QueryBackend,
+{
+    fn from(value: Column<B, T>) -> Self {
         let Column { column_ref, .. } = value;
 
         Self::Column(column_ref)
     }
 }
 
-impl Column<String> {
-    pub fn like(self, pattern: impl Into<String>) -> Expr {
-        let pattern: String = pattern.into();
-        self.binary(BinaryOp::Like, pattern)
+impl<B, T> From<Column<B, T>> for Expr<B>
+where
+    B: QueryBackend,
+{
+    fn from(value: Column<B, T>) -> Self {
+        ExprNode::from(value).into()
     }
 }
 
-impl<T> Clone for Column<T> {
+impl<B, T> Clone for Column<B, T>
+where
+    B: QueryBackend,
+{
     fn clone(&self) -> Self {
         Self {
             column_ref: self.column_ref.clone(),

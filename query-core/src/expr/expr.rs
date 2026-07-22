@@ -1,6 +1,8 @@
-use std::ops::Add;
+use std::{marker::PhantomData, ops::Add};
 
-use crate::value::Value;
+use derive_where::derive_where;
+
+use crate::backend::QueryBackend;
 
 use super::ColumnRef;
 
@@ -15,21 +17,36 @@ impl Add<usize> for ExprId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum ExprNode {
+#[derive_where(
+    Clone,
+    Debug,
+    PartialEq;
+    <B as QueryBackend>::BinaryOp,
+    <B as QueryBackend>::UnaryOp,
+    <B as QueryBackend>::Value
+)]
+pub enum ExprNode<B: QueryBackend> {
     Column(ColumnRef),
-    Value(Value),
-    Values(Vec<Value>),
+    Value(B::Value),
+    Values(Vec<B::Value>),
+    Unary {
+        op: B::UnaryOp,
+        expr: ExprId,
+    },
     Binary {
-        op: BinaryOp,
+        op: B::BinaryOp,
         left: ExprId,
         right: ExprId,
     },
 }
 
-impl ExprNode {
+impl<B: QueryBackend> ExprNode<B> {
     fn shift_ids(self, offset: usize) -> Self {
         match self {
+            Self::Unary { op, expr } => Self::Unary {
+                op,
+                expr: expr + offset,
+            },
             Self::Binary { op, left, right } => Self::Binary {
                 op,
                 left: left + offset,
@@ -40,27 +57,31 @@ impl ExprNode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct ExprArena {
-    pub(crate) nodes: Vec<ExprNode>,
+#[derive_where(Clone, Debug, PartialEq; ExprNode<B>)]
+pub struct ExprArena<B: QueryBackend> {
+    pub(crate) nodes: Vec<ExprNode<B>>,
+    _backend: PhantomData<fn() -> B>,
 }
 
-impl ExprArena {
+impl<B: QueryBackend> ExprArena<B> {
     pub fn new() -> Self {
-        Self { nodes: Vec::new() }
+        Self {
+            nodes: Vec::new(),
+            _backend: PhantomData,
+        }
     }
 
-    pub(crate) fn push(&mut self, expr: ExprNode) -> ExprId {
+    pub(crate) fn push(&mut self, expr: ExprNode<B>) -> ExprId {
         let id = ExprId(self.nodes.len());
         self.nodes.push(expr);
         id
     }
 
-    pub fn get(&self, id: ExprId) -> &ExprNode {
+    pub fn get(&self, id: ExprId) -> &ExprNode<B> {
         &self.nodes[id.0]
     }
 
-    pub fn append(&mut self, fragment: Expr) -> ExprId {
+    pub fn append(&mut self, fragment: Expr<B>) -> ExprId {
         let offset = self.nodes.len();
         let root = fragment.root + offset;
 
@@ -76,21 +97,34 @@ impl ExprArena {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Expr {
-    exprs: ExprArena,
+#[derive_where(Clone, Debug, PartialEq; ExprArena<B>)]
+pub struct Expr<B: QueryBackend> {
+    exprs: ExprArena<B>,
     root: ExprId,
 }
 
-impl Expr {
-    fn from_node(expr: ExprNode) -> Self {
+impl<B: QueryBackend> Expr<B> {
+    fn from_node(expr: ExprNode<B>) -> Self {
         let mut exprs = ExprArena::new();
         let root = exprs.push(expr);
 
         Self { exprs, root }
     }
 
-    pub(crate) fn binary(op: BinaryOp, left: Self, right: impl Into<Self>) -> Self {
+    pub fn value(value: B::Value) -> Self {
+        Self::from_node(ExprNode::Value(value))
+    }
+
+    pub fn unary(op: B::UnaryOp, expr: impl Into<Self>) -> Self {
+        let expr = expr.into();
+        let mut exprs = ExprArena::new();
+        let expr = exprs.append(expr);
+        let root = exprs.push(ExprNode::Unary { op, expr });
+
+        Self { exprs, root }
+    }
+
+    pub fn binary(op: B::BinaryOp, left: Self, right: impl Into<Self>) -> Self {
         let right = right.into();
         let mut exprs = ExprArena::new();
         let left = exprs.append(left);
@@ -100,36 +134,18 @@ impl Expr {
         Self { exprs, root }
     }
 
-    pub(crate) fn values(values: impl IntoIterator<Item = impl Into<Value>>) -> Self {
+    pub fn values(values: impl IntoIterator<Item = impl Into<B::Value>>) -> Self {
         Self::from_node(ExprNode::Values(
             values.into_iter().map(Into::into).collect(),
         ))
     }
 }
 
-impl<T> From<T> for Expr
+impl<B> From<ExprNode<B>> for Expr<B>
 where
-    T: Into<ExprNode>,
+    B: QueryBackend,
 {
-    fn from(value: T) -> Self {
-        Self::from_node(value.into())
+    fn from(expr: ExprNode<B>) -> Self {
+        Self::from_node(expr)
     }
-}
-
-impl IntoIterator for Expr {
-    type Item = Expr;
-    type IntoIter = std::iter::Once<Expr>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once(self)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BinaryOp {
-    And,
-    Or,
-    Eq,
-    In,
-    Like,
 }

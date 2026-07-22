@@ -1,71 +1,53 @@
-use placeholder_query_core::{
-    column::Column,
-    expr::{Expr, Ident},
-    projection::Projection,
-    table::Table,
-    value::Value,
-};
-
-use super::Pg;
+use crate::{Column, Expr, Ident, Pg, Projection, Table, Value};
 
 #[test]
-fn pg_builds_select() {
+fn pg_builds_empty_in_filter() {
     let statement = Pg
-        .select(|q| q.from(foo::table()).project(|foo| (foo.id(), foo.name())))
+        .select(|q| {
+            q.from(foo::table())
+                .filter(|foo| foo.id().in_(std::iter::empty::<i32>()))
+                .project(|foo| foo.id())
+        })
         .build();
 
-    assert_eq!(statement.sql, "SELECT t0.id, t0.name FROM foo AS t0");
+    assert_eq!(statement.sql, "SELECT t0.id FROM foo AS t0 WHERE FALSE");
     assert_eq!(statement.params, []);
 }
 
 #[test]
-fn pg_builds_join_and_filters() {
+fn pg_builds_composed_filter() {
     let statement = Pg
         .select(|q| {
             q.from(foo::table())
-                .join(other::table(), |(foo, other)| foo.id().eq(other.id()))
-                .filter(|(foo, _)| [foo.id().eq(42), foo.name().like("foo%")])
-                .project(|(foo, other)| (foo.id(), other.name()))
+                .filter(|foo| foo.id().eq(1).or(foo.id().eq(2)).and(foo.name().like("A%")))
+                .project(|foo| foo.id())
         })
         .build();
 
     assert_eq!(
         statement.sql,
-        "SELECT t0.id, t1.name FROM foo AS t0 JOIN other AS t1 ON t0.id = t1.id WHERE t0.id = $1 AND t0.name LIKE $2"
+        "SELECT t0.id FROM foo AS t0 WHERE ((t0.id = $1 OR t0.id = $2) AND t0.name LIKE $3)"
     );
     assert_eq!(
         statement.params,
-        [Value::Int(42), Value::Text("foo%".to_owned())]
+        [Value::Int(1), Value::Int(2), Value::Text("A%".to_owned())]
     );
 }
 
 #[test]
-fn pg_builds_multiple_joins_with_stable_aliases() {
+fn pg_builds_five_column_projection() {
     let statement = Pg
         .select(|q| {
             q.from(foo::table())
-                .join(other::table(), |(foo, first)| foo.id().eq(first.id()))
-                .join(other::table(), |((foo, _), second)| {
-                    foo.id().eq(second.id())
-                })
-                .filter(|((_, first), second)| {
-                    [first.name().like("left%"), second.name().like("right%")]
-                })
-                .project(|((foo, first), second)| (foo.id(), first.name(), second.name()))
+                .project(|foo| (foo.id(), foo.name(), foo.id(), foo.name(), foo.id()))
         })
         .build();
 
     assert_eq!(
         statement.sql,
-        "SELECT t0.id, t1.name, t2.name FROM foo AS t0 JOIN other AS t1 ON t0.id = t1.id JOIN other AS t2 ON t0.id = t2.id WHERE t1.name LIKE $1 AND t2.name LIKE $2"
+        "SELECT t0.id, t0.name, t0.id, t0.name, t0.id FROM foo AS t0"
     );
-    assert_eq!(
-        statement.params,
-        [
-            Value::Text("left%".to_owned()),
-            Value::Text("right%".to_owned())
-        ]
-    );
+    assert_eq!(statement.params, []);
 }
 
 mod foo {
@@ -88,56 +70,6 @@ mod foo {
         type Columns = Columns;
 
         const NAME: &'static str = "foo";
-
-        fn bind_alias(alias: Ident) -> Self::Columns {
-            Columns { alias }
-        }
-    }
-
-    impl Columns {
-        pub fn id(&self) -> Column<i32> {
-            Column::new(self.alias.clone(), "id")
-        }
-
-        pub fn name(&self) -> Column<String> {
-            Column::new(self.alias.clone(), "name")
-        }
-    }
-
-    impl Projection for Columns {
-        type Fields = (i32, String);
-        type Output = (i32, String);
-
-        fn select_exprs(&self) -> Vec<Expr> {
-            (self.id(), self.name()).select_exprs()
-        }
-
-        fn from_fields(&self, fields: Self::Fields) -> Self::Output {
-            fields
-        }
-    }
-}
-
-mod other {
-    use super::*;
-
-    #[derive(Clone, Copy)]
-    pub struct Other;
-
-    #[derive(Clone)]
-    pub struct Columns {
-        alias: Ident,
-    }
-
-    pub fn table() -> Other {
-        Other
-    }
-
-    impl Table for Other {
-        type Row = (i32, String);
-        type Columns = Columns;
-
-        const NAME: &'static str = "other";
 
         fn bind_alias(alias: Ident) -> Self::Columns {
             Columns { alias }

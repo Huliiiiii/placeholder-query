@@ -1,35 +1,28 @@
-use std::marker::PhantomData;
+use super::{column::Column, expr::Expr};
 
-use crate::{backend::QueryBackend, column::Column, expr::Expr};
-
-pub trait Projection<B: QueryBackend> {
+pub trait Projection {
     type Fields;
     type Output;
 
-    fn select_exprs(&self) -> Vec<Expr<B>>;
+    fn select_exprs(&self) -> Vec<Expr>;
 
     fn from_fields(&self, fields: Self::Fields) -> Self::Output;
 }
 
-pub struct MappedProjection<B, P, F>
-where
-    B: QueryBackend,
-{
+pub struct MappedProjection<P, F> {
     projection: P,
     map: F,
-    _backend: PhantomData<fn() -> B>,
 }
 
-impl<B, P, F, T> Projection<B> for MappedProjection<B, P, F>
+impl<P, F, T> Projection for MappedProjection<P, F>
 where
-    B: QueryBackend,
-    P: Projection<B>,
+    P: Projection,
     F: Fn(P::Output) -> T,
 {
     type Fields = P::Fields;
     type Output = T;
 
-    fn select_exprs(&self) -> Vec<Expr<B>> {
+    fn select_exprs(&self) -> Vec<Expr> {
         self.projection.select_exprs()
     }
 
@@ -38,37 +31,25 @@ where
     }
 }
 
-pub trait ProjectionExt<B>: Projection<B> + Sized
-where
-    B: QueryBackend,
-{
+pub trait ProjectionExt: Projection + Sized {
     fn map<T>(
         self,
         map: impl Fn(Self::Output) -> T,
-    ) -> MappedProjection<B, Self, impl Fn(Self::Output) -> T> {
+    ) -> MappedProjection<Self, impl Fn(Self::Output) -> T> {
         MappedProjection {
             projection: self,
             map,
-            _backend: PhantomData,
         }
     }
 }
 
-impl<B, P> ProjectionExt<B> for P
-where
-    B: QueryBackend,
-    P: Projection<B>,
-{
-}
+impl<P: Projection> ProjectionExt for P {}
 
-impl<B, T> Projection<B> for Column<B, T>
-where
-    B: QueryBackend,
-{
+impl<T> Projection for Column<T> {
     type Fields = T;
     type Output = T;
 
-    fn select_exprs(&self) -> Vec<Expr<B>> {
+    fn select_exprs(&self) -> Vec<Expr> {
         vec![self.clone().into()]
     }
 
@@ -80,14 +61,11 @@ where
 fortuples::fortuples! {
     #[tuples::min_size(2)]
     #[tuples::max_size(21)]
-    impl<Backend> Projection<Backend> for (#(Column<Backend, #Member>),*)
-    where
-        Backend: QueryBackend,
-    {
+    impl Projection for (#(Column<#Member>),*) {
         type Fields = (#(#Member),*);
         type Output = (#(#Member),*);
 
-        fn select_exprs(&self) -> Vec<Expr<Backend>> {
+        fn select_exprs(&self) -> Vec<Expr> {
             vec![#(#self.clone().into()),*]
         }
 

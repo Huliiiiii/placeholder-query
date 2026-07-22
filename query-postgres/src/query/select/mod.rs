@@ -1,11 +1,9 @@
-mod builder;
 mod dsl;
 mod plan;
+pub mod predicate;
 mod render;
 
-pub use builder::Pg;
-pub use dsl::PgQueryCx;
-pub use plan::{PgSelect, PgSelectBuilder, PgSelectPlan, PgStatement};
+pub use plan::{PgSelect, PgSelectBuilder, PgSelectPlan};
 
 #[cfg(test)]
 mod tests;

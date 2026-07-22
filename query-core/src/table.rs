@@ -1,8 +1,8 @@
-use crate::{expr::Ident, projection::Projection};
+use crate::{backend::QueryBackend, ident::Ident, projection::Projection};
 
-pub trait Table {
+pub trait Table<B: QueryBackend> {
     type Row;
-    type Columns: Clone + Projection<Output = Self::Row>;
+    type Columns: Clone + Projection<B, Output = Self::Row>;
 
     const NAME: &'static str;
 

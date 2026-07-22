@@ -3,8 +3,7 @@ mod model;
 
 use std::env;
 
-use placeholder_query_core::value::Value;
-use placeholder_query_postgres::Pg;
+use placeholder_query_postgres::{Pg, Value};
 use placeholder_query_runtime::Fetch;
 use placeholder_query_tokio_postgres::Executor;
 use tokio_postgres::NoTls;
