@@ -23,7 +23,7 @@ impl<T> Column<T> {
     }
 
     pub fn in_(self, values: impl IntoIterator<Item = impl Into<Value>>) -> Expr {
-        let right = CoreExpr::values(values);
+        let right = CoreExpr::value_list(values);
 
         CoreExpr::binary(BinaryOp::In, self.into(), right).into()
     }

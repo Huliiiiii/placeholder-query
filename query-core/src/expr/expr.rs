@@ -28,7 +28,7 @@ impl Add<usize> for ExprId {
 pub enum ExprNode<B: QueryBackend> {
     Column(ColumnRef),
     Value(B::Value),
-    Values(Vec<B::Value>),
+    ValueList(Vec<B::Value>),
     Unary {
         op: B::UnaryOp,
         expr: ExprId,
@@ -71,13 +71,13 @@ impl<B: QueryBackend> ExprArena<B> {
         }
     }
 
-    pub(crate) fn push(&mut self, expr: ExprNode<B>) -> ExprId {
+    pub(crate) fn push(&mut self, node: ExprNode<B>) -> ExprId {
         let id = ExprId(self.nodes.len());
-        self.nodes.push(expr);
+        self.nodes.push(node);
         id
     }
 
-    pub fn get(&self, id: ExprId) -> &ExprNode<B> {
+    pub fn node(&self, id: ExprId) -> &ExprNode<B> {
         &self.nodes[id.0]
     }
 
@@ -104,9 +104,9 @@ pub struct Expr<B: QueryBackend> {
 }
 
 impl<B: QueryBackend> Expr<B> {
-    fn from_node(expr: ExprNode<B>) -> Self {
+    fn from_node(node: ExprNode<B>) -> Self {
         let mut arena = ExprArena::new();
-        let root = arena.push(expr);
+        let root = arena.push(node);
 
         Self { arena, root }
     }
@@ -140,8 +140,8 @@ impl<B: QueryBackend> Expr<B> {
         left
     }
 
-    pub fn values(values: impl IntoIterator<Item = impl Into<B::Value>>) -> Self {
-        Self::from_node(ExprNode::Values(
+    pub fn value_list(values: impl IntoIterator<Item = impl Into<B::Value>>) -> Self {
+        Self::from_node(ExprNode::ValueList(
             values.into_iter().map(Into::into).collect(),
         ))
     }
