@@ -1,4 +1,8 @@
-use placeholder_query_core::{column::Column as CoreColumn, expr::Expr as CoreExpr, ident::Ident};
+use placeholder_query_core::{
+    column::Column as CoreColumn,
+    expr::Expr as CoreExpr,
+    ident::{Ident, TableAlias},
+};
 
 use crate::{backend::Pg, value::Value};
 
@@ -8,7 +12,7 @@ use super::{expr::Expr, operator::BinaryOp};
 pub struct Column<T>(CoreColumn<Pg, T>);
 
 impl<T> Column<T> {
-    pub fn new(table_alias: impl Into<Ident>, name: impl Into<Ident>) -> Self {
+    pub fn new(table_alias: TableAlias, name: impl Into<Ident>) -> Self {
         Self(CoreColumn::new(table_alias, name))
     }
 

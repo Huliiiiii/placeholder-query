@@ -1,4 +1,4 @@
-use placeholder_query_core::ident::Ident;
+use placeholder_query_core::ident::TableAlias;
 
 use crate::{
     backend::Pg,
@@ -9,10 +9,6 @@ use super::{
     plan::{PgJoin, PgSelect, PgSelectBuilder, PgSelectPlan, PgTableRef},
     predicate::IntoPredicates,
 };
-
-fn table_alias(index: usize) -> Ident {
-    format!("t{index}").into()
-}
 
 impl Pg {
     pub fn select<P, Q>(&self, build: impl FnOnce(PgQueryCx) -> Q) -> PgSelect<P>
@@ -29,8 +25,8 @@ impl Pg {
 
 impl PgQueryCx {
     pub fn from<T: Table>(self, _table: T) -> PgSelectBuilder<T::Columns> {
-        let alias = table_alias(0);
-        let columns = T::bind_alias(alias.clone());
+        let alias = TableAlias(0);
+        let columns = T::bind_alias(alias);
 
         PgSelectBuilder {
             plan: PgSelectPlan::new(PgTableRef {
@@ -44,8 +40,8 @@ impl PgQueryCx {
 }
 
 impl<Columns> PgSelectBuilder<Columns> {
-    fn next_alias(&mut self) -> Ident {
-        let alias = table_alias(self.alias_count);
+    fn next_alias(&mut self) -> TableAlias {
+        let alias = TableAlias(self.alias_count);
         self.alias_count += 1;
         alias
     }
@@ -59,7 +55,7 @@ impl<Columns> PgSelectBuilder<Columns> {
         Columns: Clone,
     {
         let alias = self.next_alias();
-        let right = T::bind_alias(alias.clone());
+        let right = T::bind_alias(alias);
         let columns = (self.columns, right.clone());
         let on = self.plan.exprs.append(on(columns.clone()).into());
 

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     backend::QueryBackend,
     expr::{ColumnRef, Expr, ExprNode},
-    ident::Ident,
+    ident::{Ident, TableAlias},
 };
 
 #[derive(Debug)]
@@ -16,11 +16,11 @@ impl<B, T> Column<B, T>
 where
     B: QueryBackend,
 {
-    pub fn new(table_alias: impl Into<Ident>, name: impl Into<Ident>) -> Self {
+    pub fn new(table_alias: TableAlias, name: impl Into<Ident>) -> Self {
         Self {
             column_ref: ColumnRef {
                 schema: None,
-                table_alias: table_alias.into(),
+                table_alias,
                 name: name.into(),
             },
             _value: PhantomData,

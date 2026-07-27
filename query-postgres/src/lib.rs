@@ -9,7 +9,7 @@ pub use fetch::{PgBackend, PgFetchBatch, PgFetchKey};
 pub use query::select::PgSelect;
 pub use query::{
     BinaryOp, Column, Expr, Ident, MappedProjection, PgQueryCx, Projection, ProjectionExt, Table,
-    UnaryOp,
+    TableAlias, UnaryOp,
 };
 pub use statement::PgStatement;
 pub use value::Value;

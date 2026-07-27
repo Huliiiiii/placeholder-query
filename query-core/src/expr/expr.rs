@@ -87,7 +87,7 @@ impl<B: QueryBackend> ExprArena<B> {
 
         self.nodes.extend(
             fragment
-                .exprs
+                .arena
                 .nodes
                 .into_iter()
                 .map(|expr| expr.shift_ids(offset)),
@@ -99,16 +99,16 @@ impl<B: QueryBackend> ExprArena<B> {
 
 #[derive_where(Clone, Debug, PartialEq; ExprArena<B>)]
 pub struct Expr<B: QueryBackend> {
-    exprs: ExprArena<B>,
+    arena: ExprArena<B>,
     root: ExprId,
 }
 
 impl<B: QueryBackend> Expr<B> {
     fn from_node(expr: ExprNode<B>) -> Self {
-        let mut exprs = ExprArena::new();
-        let root = exprs.push(expr);
+        let mut arena = ExprArena::new();
+        let root = arena.push(expr);
 
-        Self { exprs, root }
+        Self { arena, root }
     }
 
     pub fn value(value: B::Value) -> Self {
@@ -116,22 +116,28 @@ impl<B: QueryBackend> Expr<B> {
     }
 
     pub fn unary(op: B::UnaryOp, expr: impl Into<Self>) -> Self {
-        let expr = expr.into();
-        let mut exprs = ExprArena::new();
-        let expr = exprs.append(expr);
-        let root = exprs.push(ExprNode::Unary { op, expr });
+        let mut expr = expr.into();
+        let root = expr.arena.push(ExprNode::Unary {
+            op,
+            expr: expr.root,
+        });
+        expr.root = root;
 
-        Self { exprs, root }
+        expr
     }
 
-    pub fn binary(op: B::BinaryOp, left: Self, right: impl Into<Self>) -> Self {
+    pub fn binary(op: B::BinaryOp, mut left: Self, right: impl Into<Self>) -> Self {
         let right = right.into();
-        let mut exprs = ExprArena::new();
-        let left = exprs.append(left);
-        let right = exprs.append(right);
-        let root = exprs.push(ExprNode::Binary { op, left, right });
+        let left_root = left.root;
+        let right = left.arena.append(right);
+        let root = left.arena.push(ExprNode::Binary {
+            op,
+            left: left_root,
+            right,
+        });
+        left.root = root;
 
-        Self { exprs, root }
+        left
     }
 
     pub fn values(values: impl IntoIterator<Item = impl Into<B::Value>>) -> Self {

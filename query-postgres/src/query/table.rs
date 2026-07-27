@@ -1,4 +1,4 @@
-use placeholder_query_core::ident::Ident;
+use placeholder_query_core::ident::TableAlias;
 
 use super::projection::Projection;
 
@@ -8,5 +8,5 @@ pub trait Table {
 
     const NAME: &'static str;
 
-    fn bind_alias(alias: Ident) -> Self::Columns;
+    fn bind_alias(alias: TableAlias) -> Self::Columns;
 }

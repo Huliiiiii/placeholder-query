@@ -1,4 +1,4 @@
-use crate::{backend::QueryBackend, ident::Ident, projection::Projection};
+use crate::{backend::QueryBackend, ident::TableAlias, projection::Projection};
 
 pub trait Table<B: QueryBackend> {
     type Row;
@@ -6,5 +6,5 @@ pub trait Table<B: QueryBackend> {
 
     const NAME: &'static str;
 
-    fn bind_alias(alias: Ident) -> Self::Columns;
+    fn bind_alias(alias: TableAlias) -> Self::Columns;
 }

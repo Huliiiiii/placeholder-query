@@ -19,7 +19,7 @@ impl Pg {
     }
 }
 
-pub(crate) fn render_select_plan(plan: &PgSelectPlan) -> PgStatement {
+fn render_select_plan(plan: &PgSelectPlan) -> PgStatement {
     let mut params = Vec::new();
     let mut sql = String::new();
 

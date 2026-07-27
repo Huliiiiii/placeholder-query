@@ -1,7 +1,7 @@
-use crate::{Column, Expr, Ident, Pg, Projection, Table, Value};
+use crate::{Column, Expr, Pg, Projection, Table, TableAlias, Value};
 
 #[test]
-fn pg_builds_empty_in_filter() {
+fn empty_in_filter_renders_false() {
     let statement = Pg
         .select(|q| {
             q.from(foo::table())
@@ -15,7 +15,24 @@ fn pg_builds_empty_in_filter() {
 }
 
 #[test]
-fn pg_builds_composed_filter() {
+fn in_filter_binds_each_value() {
+    let statement = Pg
+        .select(|q| {
+            q.from(foo::table())
+                .filter(|foo| foo.id().in_([1, 2]))
+                .project(|foo| foo.id())
+        })
+        .build();
+
+    assert_eq!(
+        statement.sql,
+        "SELECT t0.id FROM foo AS t0 WHERE t0.id IN ($1, $2)"
+    );
+    assert_eq!(statement.params, [Value::Int(1), Value::Int(2)]);
+}
+
+#[test]
+fn composed_filter_preserves_grouping() {
     let statement = Pg
         .select(|q| {
             q.from(foo::table())
@@ -35,7 +52,7 @@ fn pg_builds_composed_filter() {
 }
 
 #[test]
-fn pg_builds_five_column_projection() {
+fn five_column_projection_renders_all_columns() {
     let statement = Pg
         .select(|q| {
             q.from(foo::table())
@@ -56,9 +73,9 @@ mod foo {
     #[derive(Clone, Copy)]
     pub struct Foo;
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct Columns {
-        alias: Ident,
+        alias: TableAlias,
     }
 
     pub fn table() -> Foo {
@@ -71,18 +88,18 @@ mod foo {
 
         const NAME: &'static str = "foo";
 
-        fn bind_alias(alias: Ident) -> Self::Columns {
+        fn bind_alias(alias: TableAlias) -> Self::Columns {
             Columns { alias }
         }
     }
 
     impl Columns {
         pub fn id(&self) -> Column<i32> {
-            Column::new(self.alias.clone(), "id")
+            Column::new(self.alias, "id")
         }
 
         pub fn name(&self) -> Column<String> {
-            Column::new(self.alias.clone(), "name")
+            Column::new(self.alias, "name")
         }
     }
 

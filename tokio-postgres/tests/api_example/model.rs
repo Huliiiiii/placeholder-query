@@ -1,5 +1,5 @@
 use placeholder_query_postgres::{
-    Column, Expr, Ident, Pg, PgFetchBatch, PgFetchKey, Projection, ProjectionExt, Table,
+    Column, Expr, Pg, PgFetchBatch, PgFetchKey, Projection, ProjectionExt, Table, TableAlias,
 };
 use placeholder_query_runtime::FetchKey;
 use placeholder_query_tokio_postgres::Executor;
@@ -197,9 +197,9 @@ pub mod users {
     #[derive(Clone, Copy)]
     pub struct Users;
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct Columns {
-        alias: Ident,
+        alias: TableAlias,
     }
 
     pub fn table() -> Users {
@@ -212,22 +212,22 @@ pub mod users {
 
         const NAME: &'static str = "users";
 
-        fn bind_alias(alias: Ident) -> Self::Columns {
+        fn bind_alias(alias: TableAlias) -> Self::Columns {
             Columns { alias }
         }
     }
 
     impl Columns {
         pub fn id(&self) -> Column<i32> {
-            Column::new(self.alias.clone(), "id")
+            Column::new(self.alias, "id")
         }
 
         pub fn name(&self) -> Column<String> {
-            Column::new(self.alias.clone(), "name")
+            Column::new(self.alias, "name")
         }
 
         pub fn email(&self) -> Column<String> {
-            Column::new(self.alias.clone(), "email")
+            Column::new(self.alias, "email")
         }
     }
 
@@ -253,9 +253,9 @@ pub mod posts {
     #[derive(Clone, Copy)]
     pub struct Posts;
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct Columns {
-        alias: Ident,
+        alias: TableAlias,
     }
 
     pub fn table() -> Posts {
@@ -268,22 +268,22 @@ pub mod posts {
 
         const NAME: &'static str = "posts";
 
-        fn bind_alias(alias: Ident) -> Self::Columns {
+        fn bind_alias(alias: TableAlias) -> Self::Columns {
             Columns { alias }
         }
     }
 
     impl Columns {
         pub fn id(&self) -> Column<i32> {
-            Column::new(self.alias.clone(), "id")
+            Column::new(self.alias, "id")
         }
 
         pub fn author_id(&self) -> Column<i32> {
-            Column::new(self.alias.clone(), "author_id")
+            Column::new(self.alias, "author_id")
         }
 
         pub fn title(&self) -> Column<String> {
-            Column::new(self.alias.clone(), "title")
+            Column::new(self.alias, "title")
         }
     }
 
@@ -313,9 +313,9 @@ pub mod post_comments {
     #[derive(Clone, Copy)]
     pub struct PostComments;
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct Columns {
-        alias: Ident,
+        alias: TableAlias,
     }
 
     pub fn table() -> PostComments {
@@ -328,22 +328,22 @@ pub mod post_comments {
 
         const NAME: &'static str = "post_comments";
 
-        fn bind_alias(alias: Ident) -> Self::Columns {
+        fn bind_alias(alias: TableAlias) -> Self::Columns {
             Columns { alias }
         }
     }
 
     impl Columns {
         pub fn id(&self) -> Column<i32> {
-            Column::new(self.alias.clone(), "id")
+            Column::new(self.alias, "id")
         }
 
         pub fn post_id(&self) -> Column<i32> {
-            Column::new(self.alias.clone(), "post_id")
+            Column::new(self.alias, "post_id")
         }
 
         pub fn body(&self) -> Column<String> {
-            Column::new(self.alias.clone(), "body")
+            Column::new(self.alias, "body")
         }
     }
 

@@ -1,6 +1,6 @@
 use placeholder_query_core::{
     expr::{ExprArena, ExprId},
-    ident::Ident,
+    ident::{Ident, TableAlias},
 };
 
 use crate::{backend::Pg, statement::PgStatement};
@@ -51,7 +51,7 @@ impl PgSelectPlan {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PgTableRef {
     pub(crate) name: Ident,
-    pub(crate) alias: Ident,
+    pub(crate) alias: TableAlias,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,5 +63,5 @@ pub(crate) struct PgJoin {
 pub struct PgSelectBuilder<Columns> {
     pub(crate) plan: PgSelectPlan,
     pub(crate) columns: Columns,
-    pub(crate) alias_count: usize,
+    pub(crate) alias_count: u32,
 }
