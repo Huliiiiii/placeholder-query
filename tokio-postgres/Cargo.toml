@@ -4,10 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-indexmap = "2.14.0"
-placeholder-query-postgres = { path = "../query-postgres" }
-placeholder-query-runtime = { path = "../runtime" }
-tokio-postgres = "0.7.17"
+fortuples.workspace = true
+futures-util.workspace = true
+lru.workspace = true
+parking_lot.workspace = true
+placeholder-query-postgres-fetch.workspace = true
+placeholder-query-postgres.workspace = true
+placeholder-query-runtime.workspace = true
+tokio-postgres.workspace = true
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+placeholder-query-core.workspace = true
+placeholder-query-macro.workspace = true

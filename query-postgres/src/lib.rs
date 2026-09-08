@@ -1,17 +1,12 @@
-mod backend;
-mod fetch;
+// For name resolution of derived macros in tests
+extern crate self as placeholder_query_postgres;
+
 pub mod query;
 mod statement;
-mod value;
 
-pub use backend::Pg;
-pub use fetch::{PgBackend, PgFetchBatch, PgFetchKey};
-pub use query::select::PgSelect;
-pub use query::{
-    BinaryOp, Column, Expr, Ident, MappedProjection, PgQueryCx, Projection, ProjectionExt, Table,
-    TableAlias, UnaryOp,
-};
-pub use statement::PgStatement;
-pub use value::Value;
+#[doc(hidden)]
+pub use derive_where as __derive_where;
 
-mod utils;
+pub use query::select::Select;
+pub use query::{BinaryOp, Expr, Ident, MappedProjection, Projection, ProjectionExt, UnaryOp};
+pub use statement::Statement;

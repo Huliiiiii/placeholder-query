@@ -1,49 +1,31 @@
 use std::{
     any::{Any, TypeId},
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
+    hash::Hash,
 };
 
-use crate::batch::FetchKey;
+use super::result::ResultId;
 
-type Bucket<K> = HashMap<K, <K as FetchKey>::Output>;
+type Bucket<R> = HashMap<R, ResultId>;
 
-pub(crate) struct DataCache {
+#[derive(Default)]
+pub(super) struct DataCache {
     buckets: HashMap<TypeId, Box<dyn Any>>,
 }
 
 impl DataCache {
-    pub(crate) fn get<K>(&self, key: &K) -> Option<K::Output>
+    pub(super) fn entry<R>(&mut self, req: R) -> Entry<'_, R, ResultId>
     where
-        K: FetchKey,
-    {
-        let bucket = self.buckets.get(&TypeId::of::<K>())?;
-        let values = bucket
-            .downcast_ref::<Bucket<K>>()
-            .expect("data cache bucket type should match fetch key type");
-
-        values.get(key).cloned()
-    }
-
-    pub(crate) fn insert<K>(&mut self, key: K, value: K::Output)
-    where
-        K: FetchKey,
+        R: Eq + Hash + 'static,
     {
         let bucket = self
             .buckets
-            .entry(TypeId::of::<K>())
-            .or_insert_with(|| Box::new(Bucket::<K>::new()));
-        let values = bucket
-            .downcast_mut::<Bucket<K>>()
-            .expect("data cache bucket type should match fetch key type");
+            .entry(TypeId::of::<R>())
+            .or_insert_with(|| Box::new(Bucket::<R>::new()));
 
-        values.insert(key, value);
-    }
-}
+        // SAFETY: buckets are private, so it's safe to assume the type of the bucket is correct.
+        let values = unsafe { bucket.downcast_mut::<Bucket<R>>().unwrap_unchecked() };
 
-impl Default for DataCache {
-    fn default() -> Self {
-        Self {
-            buckets: HashMap::new(),
-        }
+        values.entry(req)
     }
 }

@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-futures-util = "0.3.32"
-indexmap = "2.14.0"
+derive-where.workspace = true
+futures-util.workspace = true
+indexmap.workspace = true
 
 [dev-dependencies]
-criterion = "0.8.2"
+criterion.workspace = true
 
 [[bench]]
 name = "fetch_runtime"

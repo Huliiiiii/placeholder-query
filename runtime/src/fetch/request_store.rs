@@ -1,106 +1,101 @@
 use std::{
-    any::{Any, TypeId},
+    any::{Any, TypeId, type_name},
     future::Future,
     pin::Pin,
 };
 
-use futures_util::future::try_join_all;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::{IndexMap, map::Entry};
 
-use crate::batch::{DataSource, FetchEnv, FetchKey};
+use crate::FetchError;
+use crate::batch::{DataSource, FetchEnv, Request};
 
-use super::data_cache::DataCache;
+use super::{FetchState, result::ResultId};
 
-type CompleteBatchFn = Box<dyn FnOnce(&mut DataCache)>;
+pub(super) type CompleteBatchFn<E> = Box<dyn FnOnce(&mut FetchState<E>)>;
 
-type ExecuteBatchFuture<'a, E> =
-    Pin<Box<dyn Future<Output = Result<CompleteBatchFn, <E as FetchEnv>::Error>> + 'a>>;
+pub(super) type ExecuteBatchFuture<'a, E> = Pin<
+    Box<dyn Future<Output = Result<CompleteBatchFn<E>, FetchError<<E as FetchEnv>::Error>>> + 'a>,
+>;
 
-pub(crate) struct RequestStore<E> {
+#[derive_where::derive_where(Default)]
+pub(super) struct RequestStore<E> {
     batches: IndexMap<TypeId, Box<dyn PendingBatch<E>>>,
 }
 
 impl<E> RequestStore<E> {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.batches.is_empty()
-    }
-
-    pub(crate) fn insert<K>(&mut self, key: &K)
+    pub(super) fn insert<R>(&mut self, req: R, id: ResultId)
     where
-        E: DataSource<K> + 'static,
-        K: FetchKey,
+        E: DataSource<R>,
+        R: Request + 'static,
+        R::Output: 'static,
     {
-        let batch = self
-            .batches
-            .entry(TypeId::of::<K>())
-            .or_insert_with(|| Box::new(IndexSet::<K>::new()));
-        batch.insert(key);
+        match self.batches.entry(TypeId::of::<R>()) {
+            Entry::Vacant(entry) => {
+                entry.insert(Box::new(vec![(req, id)]));
+            }
+            Entry::Occupied(entry) => {
+                let batch = entry
+                    .into_mut()
+                    .as_any_mut()
+                    .downcast_mut::<Vec<(R, ResultId)>>()
+                    .expect("request store batch type should match request type");
+
+                batch.push((req, id));
+            }
+        }
     }
 
-    pub(crate) async fn execute_round(
-        self,
-        env: &E,
-        data_cache: &mut DataCache,
-    ) -> Result<(), E::Error>
+    pub(super) fn take_jobs<'a>(&mut self, context: &'a E) -> Vec<ExecuteBatchFuture<'a, E>>
     where
         E: FetchEnv,
     {
-        let completions =
-            try_join_all(self.batches.into_values().map(|batch| batch.execute(env))).await?;
-
-        for complete in completions {
-            complete(data_cache);
-        }
-
-        Ok(())
-    }
-}
-
-impl<E> Default for RequestStore<E> {
-    fn default() -> Self {
-        Self {
-            batches: IndexMap::new(),
-        }
+        std::mem::take(&mut self.batches)
+            .into_values()
+            .map(|batch| batch.into_job(context))
+            .collect()
     }
 }
 
 trait PendingBatch<E> {
-    fn insert(&mut self, key: &dyn Any);
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    fn execute<'a>(self: Box<Self>, env: &'a E) -> ExecuteBatchFuture<'a, E>
+    fn into_job<'a>(self: Box<Self>, context: &'a E) -> ExecuteBatchFuture<'a, E>
     where
-        E: FetchEnv + 'a;
+        E: FetchEnv;
 }
 
-impl<E, K> PendingBatch<E> for IndexSet<K>
+impl<E, R> PendingBatch<E> for Vec<(R, ResultId)>
 where
-    E: DataSource<K>,
-    K: FetchKey,
+    E: DataSource<R>,
+    R: Request + 'static,
+    R::Output: 'static,
 {
-    fn insert(&mut self, key: &dyn Any) {
-        let key = key
-            .downcast_ref::<K>()
-            .expect("request store batch type should match fetch key type");
-        self.insert(key.clone());
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 
-    fn execute<'a>(self: Box<Self>, env: &'a E) -> ExecuteBatchFuture<'a, E>
-    where
-        E: FetchEnv + 'a,
-    {
-        let keys = (*self).into_iter().collect::<Vec<_>>();
+    fn into_job<'a>(self: Box<Self>, context: &'a E) -> ExecuteBatchFuture<'a, E> {
+        let batch = *self;
+        Box::pin(async {
+            let mut outputs = context.fetch(batch.iter().map(|(req, _)| req)).await?;
 
-        Box::pin(async move {
-            let mut outputs = env.batch_fetch(&keys).await?;
+            let completed = batch
+                .into_iter()
+                .map(|(req, id)| {
+                    outputs
+                        .remove(&req)
+                        .map(|output| (id, output))
+                        .ok_or_else(|| FetchError::MissingOutput {
+                            req_type: type_name::<R>(),
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(Box::new(move |data_cache: &mut DataCache| {
-                for key in keys {
-                    let output = outputs
-                        .shift_remove(&key)
-                        .expect("fetch batch should return exactly one output per request");
-                    data_cache.insert(key, output);
+            Ok(Box::new(move |state: &mut FetchState<E>| {
+                for (id, output) in completed {
+                    state.complete(id, Box::new(output));
                 }
-            }) as CompleteBatchFn)
+            }) as CompleteBatchFn<E>)
         })
     }
 }

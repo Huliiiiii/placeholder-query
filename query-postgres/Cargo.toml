@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-fortuples = "0.9.1"
-indexmap = "2.14.0"
-placeholder-query-core = { path = "../query-core" }
-placeholder-query-runtime = { path = "../runtime" }
+derive-where.workspace = true
+fortuples.workspace = true
+placeholder-query-core.workspace = true
+
+[dev-dependencies]
+placeholder-query-macro.workspace = true

@@ -1,21 +1,36 @@
-use std::{future::Future, hash::Hash};
+use std::{collections::HashMap, future::Future, hash::Hash};
 
-use indexmap::IndexMap;
+use crate::{Fetch, FetchError};
 
-pub trait FetchKey: Clone + Eq + Hash + 'static {
-    type Output: Clone + 'static;
+pub trait Request: Eq + Hash {
+    type Output;
 }
 
-pub trait FetchEnv {
+pub trait FetchEnv: Sized {
     type Error;
+
+    fn run<A>(
+        &self,
+        computation: impl Into<Fetch<Self, A>>,
+    ) -> impl Future<Output = Result<A, FetchError<Self::Error>>>
+    where
+        A: 'static,
+    {
+        computation.into().run_with(self)
+    }
 }
 
-pub trait DataSource<K>: FetchEnv
+pub trait DataSource<R>: FetchEnv
 where
-    K: FetchKey,
+    R: Request,
 {
-    fn batch_fetch<'a>(
-        &'a self,
-        keys: &'a [K],
-    ) -> impl Future<Output = Result<IndexMap<K, K::Output>, Self::Error>> + 'a;
+    /// Fetches one output for each request.
+    ///
+    /// `reqs` must be unique.
+    fn fetch<'a>(
+        &self,
+        reqs: impl IntoIterator<Item = &'a R>,
+    ) -> impl Future<Output = Result<HashMap<R, R::Output>, Self::Error>>
+    where
+        R: 'a;
 }

@@ -1,130 +1,111 @@
-pub(crate) mod data_cache;
+mod continuation;
+mod data_cache;
 mod request_store;
+mod result;
+mod run_queue;
 
-use std::marker::PhantomData;
+use std::{collections::hash_map::Entry, future::poll_fn, marker::PhantomData, task::Poll, vec};
 
-use crate::batch::{DataSource, FetchEnv, FetchKey};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 
+use crate::{
+    FetchError,
+    batch::{DataSource, FetchEnv, Request},
+};
+
+use continuation::{Computation, Job, Step, StepFn, Value};
 use data_cache::DataCache;
-use request_store::RequestStore;
-
-pub struct FetchCx<E> {
-    _env: PhantomData<fn() -> E>,
-}
-
-type StepFn<E, A> = Box<dyn FnOnce(&mut FetchState<E>) -> Step<E, A>>;
+use request_store::{ExecuteBatchFuture, RequestStore};
+use result::{ResultId, ResultSlot, ResultSlots};
+use run_queue::RunQueue;
 
 pub struct Fetch<E, A> {
-    step: StepFn<E, A>,
+    computation: Computation<E>,
+    _output: PhantomData<fn() -> A>,
 }
 
+#[derive_where::derive_where(Default)]
 struct FetchState<E> {
     data_cache: DataCache,
-    requests: RequestStore<E>,
+    reqs: RequestStore<E>,
+    results: ResultSlots<E>,
+    runnable: RunQueue<E>,
 }
 
-enum Step<E, A> {
-    Ready(A),
-    Blocked(StepFn<E, A>),
-}
-
-impl<E, A> Step<E, A> {
-    fn resume(self, state: &mut FetchState<E>) -> Self {
-        match self {
-            Step::Ready(value) => Step::Ready(value),
-            Step::Blocked(task) => task(state),
-        }
-    }
-}
-
-impl<E, A> Step<E, A>
-where
-    E: 'static,
-    A: 'static,
-{
-    fn map<C>(self, map: impl FnOnce(A) -> C + 'static) -> Step<E, C>
-    where
-        C: 'static,
-    {
-        match self {
-            Step::Ready(value) => Step::Ready(map(value)),
-            Step::Blocked(task) => Step::Blocked(Box::new(|state| task(state).map(map))),
+impl<E> FetchState<E> {
+    fn when_ready(&mut self, id: ResultId, resume: StepFn<E>) -> Step<'_, E> {
+        match &mut self.results[id] {
+            ResultSlot::Pending(waiters) => Step::Blocked(waiters, resume),
+            ResultSlot::Ready(_) => resume(self),
+            ResultSlot::Taken => unreachable!("cannot wait for a consumed result"),
         }
     }
 
-    fn and_then<C>(
-        self,
-        then: impl FnOnce(A, &FetchCx<E>) -> Fetch<E, C> + 'static,
-        state: &mut FetchState<E>,
-    ) -> Step<E, C>
-    where
-        C: 'static,
-    {
-        match self {
-            Step::Ready(value) => {
-                let cx = FetchCx::new();
-                then(value, &cx).poll(state)
-            }
-            Step::Blocked(task) => {
-                Step::Blocked(Box::new(|state| task(state).and_then(then, state)))
-            }
-        }
+    fn complete(&mut self, id: ResultId, value: Value) {
+        let ResultSlot::Pending(waiters) =
+            std::mem::replace(&mut self.results[id], ResultSlot::Ready(value))
+        else {
+            unreachable!("a result can only be completed once")
+        };
+
+        self.runnable.prepend(waiters);
     }
 
-    fn zip<C>(self, other: Step<E, C>) -> Step<E, (A, C)>
-    where
-        C: 'static,
-    {
-        match (self, other) {
-            (Step::Ready(left), Step::Ready(right)) => Step::Ready((left, right)),
-            (left, right) => Step::Blocked(Box::new(|state| {
-                left.resume(state).zip(right.resume(state))
-            })),
-        }
+    fn get<A: 'static>(&self, id: ResultId) -> &A {
+        let ResultSlot::Ready(value) = &self.results[id] else {
+            unreachable!("only ready results can be read")
+        };
+
+        value
+            .downcast_ref()
+            .expect("result type should match its computation")
     }
 
-    fn collect(items: Vec<Self>) -> Step<E, Vec<A>> {
-        if items.iter().all(|item| matches!(item, Step::Ready(_))) {
-            Step::Ready(
-                items
-                    .into_iter()
-                    .map(|item| match item {
-                        Step::Ready(value) => value,
-                        Step::Blocked(_) => unreachable!("all traverse items should be ready"),
-                    })
-                    .collect(),
-            )
+    fn take<A: 'static>(&mut self, id: ResultId) -> A {
+        let ResultSlot::Ready(value) = std::mem::replace(&mut self.results[id], ResultSlot::Taken)
+        else {
+            unreachable!("a computation result can only be taken once")
+        };
+
+        *value
+            .downcast()
+            .expect("result type should match its computation")
+    }
+
+    fn take_ready<A: 'static>(&mut self, id: ResultId) -> Option<A> {
+        if self.results[id].is_ready() {
+            Some(self.take(id))
         } else {
-            Step::Blocked(Box::new(|state| {
-                let items = items.into_iter().map(|item| item.resume(state)).collect();
-
-                Step::collect(items)
-            }))
+            None
         }
     }
 }
 
 impl<E, A> Fetch<E, A> {
-    pub fn new(build: impl FnOnce(&FetchCx<E>) -> Fetch<E, A>) -> Self {
-        let cx = FetchCx::new();
-
-        build(&cx)
-    }
-
     pub fn pure(value: A) -> Self
     where
         A: 'static,
     {
-        Self::from_step_fn(|_| Step::Ready(value))
+        Self::from_step_fn(|_| Step::ready(value))
     }
 
     pub fn map<C>(self, map: impl FnOnce(A) -> C + 'static) -> Fetch<E, C>
     where
-        E: 'static,
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step_fn(|state| self.poll(state).map(map))
+        let mut computation = self.computation;
+        computation.conts.push(Box::new(|value| {
+            let value = *value
+                .downcast::<A>()
+                .expect("map input should match fetch output");
+            Fetch::pure(map(value)).computation
+        }));
+
+        Fetch {
+            computation,
+            _output: PhantomData,
+        }
     }
 
     pub fn zip<C>(self, other: Fetch<E, C>) -> Fetch<E, (A, C)>
@@ -133,112 +114,182 @@ impl<E, A> Fetch<E, A> {
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step_fn(|state| self.poll(state).zip(other.poll(state)))
+        Fetch::from_step_fn(|state| {
+            let left_id = state.results.alloc();
+            let right_id = state.results.alloc();
+            state.runnable.prepend([
+                Job::new(self.computation, left_id),
+                Job::new(other.computation, right_id),
+            ]);
+
+            state.when_ready(
+                left_id,
+                Box::new(move |state| {
+                    let left = state.take::<A>(left_id);
+                    state.when_ready(
+                        right_id,
+                        Box::new(move |state| Step::ready((left, state.take::<C>(right_id)))),
+                    )
+                }),
+            )
+        })
     }
 
-    pub fn and_then<C>(
-        self,
-        then: impl FnOnce(A, &FetchCx<E>) -> Fetch<E, C> + 'static,
-    ) -> Fetch<E, C>
+    pub fn and_then<C>(self, then: impl FnOnce(A) -> Fetch<E, C> + 'static) -> Fetch<E, C>
     where
-        E: 'static,
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step_fn(|state| self.poll(state).and_then(then, state))
-    }
+        let mut computation = self.computation;
+        computation.conts.push(Box::new(|value| {
+            let value = *value
+                .downcast::<A>()
+                .expect("bind input should match fetch output");
+            then(value).computation
+        }));
 
-    fn from_step_fn(step: impl FnOnce(&mut FetchState<E>) -> Step<E, A> + 'static) -> Self {
-        Self {
-            step: Box::new(step),
+        Fetch {
+            computation,
+            _output: PhantomData,
         }
     }
 
-    fn poll(self, state: &mut FetchState<E>) -> Step<E, A> {
-        (self.step)(state)
+    fn from_step_fn(
+        step: impl for<'a> FnOnce(&'a mut FetchState<E>) -> Step<'a, E> + 'static,
+    ) -> Self {
+        Self {
+            computation: Computation {
+                step: Box::new(step),
+                conts: Vec::new(),
+            },
+            _output: PhantomData,
+        }
     }
 }
 
 impl<E, A> Fetch<E, A>
 where
-    E: FetchEnv + 'static,
+    E: FetchEnv,
+    A: 'static,
 {
-    pub async fn run(self, env: &E) -> Result<A, E::Error> {
-        let mut state = FetchState {
-            data_cache: DataCache::default(),
-            requests: RequestStore::default(),
-        };
-        let mut step = self.poll(&mut state);
+    pub(crate) async fn run_with(self, env: &E) -> Result<A, FetchError<E::Error>> {
+        const POLL_BUDGET: usize = 256;
 
-        loop {
-            match step {
-                Step::Ready(value) => return Ok(value),
-                Step::Blocked(task) => {
-                    let requests = std::mem::take(&mut state.requests);
-                    assert!(
-                        !requests.is_empty(),
-                        "fetch made no progress while waiting for a round"
-                    );
-                    requests.execute_round(env, &mut state.data_cache).await?;
-                    step = task(&mut state);
+        let mut state = FetchState::default();
+        let root_id = state.results.alloc();
+        state
+            .runnable
+            .prepend([Job::new(self.computation, root_id)]);
+        let mut jobs = FuturesUnordered::<ExecuteBatchFuture<'_, E>>::new();
+
+        poll_fn(|cx| {
+            for _ in 0..POLL_BUDGET {
+                if let Some(job) = state.runnable.next() {
+                    job.run(&mut state);
+                    continue;
+                }
+
+                if let Some(value) = state.take_ready::<A>(root_id) {
+                    return Poll::Ready(Ok(value));
+                }
+
+                match jobs.poll_next_unpin(cx) {
+                    Poll::Ready(Some(Ok(complete))) => complete(&mut state),
+                    Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(error)),
+                    Poll::Ready(None) | Poll::Pending => {
+                        let pending = state.reqs.take_jobs(env);
+                        if pending.is_empty() {
+                            assert!(
+                                !jobs.is_empty(),
+                                "fetch made no progress while waiting for requests"
+                            );
+                            return Poll::Pending;
+                        }
+
+                        jobs.extend(pending);
+                    }
                 }
             }
-        }
+
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        })
+        .await
     }
 }
 
-impl<E> FetchCx<E> {
-    fn new() -> Self {
-        Self { _env: PhantomData }
-    }
-
-    pub fn fetch<K>(&self, key: K) -> Fetch<E, K::Output>
-    where
-        E: DataSource<K> + 'static,
-        K: FetchKey,
-    {
-        Fetch::from_step_fn(move |state| {
-            if let Some(value) = state.data_cache.get(&key) {
-                return Step::Ready(value);
-            }
-
-            state.requests.insert(&key);
-            Step::Blocked(Box::new(move |state| {
-                Step::Ready(
-                    state
-                        .data_cache
-                        .get(&key)
-                        .expect("fetch key should be available after request round"),
-                )
-            }))
-        })
-    }
-
-    pub fn traverse<T, C>(
-        &self,
-        items: impl IntoIterator<Item = T>,
-        fetch: impl Fn(T, &FetchCx<E>) -> Fetch<E, C>,
-    ) -> Fetch<E, Vec<C>>
-    where
-        E: 'static,
-        C: 'static,
-    {
-        let fetches = items
-            .into_iter()
-            .map(|item| fetch(item, self))
-            .collect::<Vec<_>>();
-
-        if fetches.is_empty() {
-            return Fetch::pure(Vec::new());
+fn collect<E, A: 'static>(
+    mut ids: vec::IntoIter<ResultId>,
+    mut values: Vec<A>,
+    state: &mut FetchState<E>,
+) -> Step<'_, E> {
+    for id in ids.by_ref() {
+        if let Some(value) = state.take_ready::<A>(id) {
+            values.push(value);
+        } else {
+            return state.when_ready(
+                id,
+                Box::new(move |state| {
+                    values.push(state.take::<A>(id));
+                    collect(ids, values, state)
+                }),
+            );
         }
-
-        Fetch::from_step_fn(|state| {
-            let items = fetches
-                .into_iter()
-                .map(|fetch| fetch.poll(state))
-                .collect::<Vec<_>>();
-
-            Step::collect(items)
-        })
     }
+
+    Step::ready(values)
+}
+
+pub fn fetch<E, R>(req: R) -> Fetch<E, R::Output>
+where
+    E: DataSource<R>,
+    R: Request + Clone + 'static,
+    R::Output: Clone + 'static,
+{
+    Fetch::from_step_fn(move |state| {
+        let id = match state.data_cache.entry(req.clone()) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) => {
+                let id = state.results.alloc();
+                entry.insert(id);
+                state.reqs.insert(req, id);
+                id
+            }
+        };
+
+        state.when_ready(
+            id,
+            Box::new(move |state| Step::ready(state.get::<R::Output>(id).clone())),
+        )
+    })
+}
+
+pub fn traverse<E, T, C>(
+    items: impl IntoIterator<Item = T>,
+    fetch: impl Fn(T) -> Fetch<E, C>,
+) -> Fetch<E, Vec<C>>
+where
+    E: 'static,
+    C: 'static,
+{
+    let fetches = items.into_iter().map(fetch).collect::<Vec<_>>();
+
+    if fetches.is_empty() {
+        return Fetch::pure(Vec::new());
+    }
+
+    Fetch::from_step_fn(|state| {
+        let ids = fetches
+            .iter()
+            .map(|_| state.results.alloc())
+            .collect::<Vec<_>>();
+        state.runnable.prepend(
+            fetches
+                .into_iter()
+                .zip(ids.iter().copied())
+                .map(|(fetch, id)| Job::new(fetch.computation, id)),
+        );
+
+        collect::<E, C>(ids.into_iter(), Vec::new(), state)
+    })
 }

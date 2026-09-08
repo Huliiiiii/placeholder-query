@@ -1,5 +1,7 @@
 mod batch;
+mod error;
 mod fetch;
 
-pub use batch::{DataSource, FetchEnv, FetchKey};
-pub use fetch::{Fetch, FetchCx};
+pub use batch::{DataSource, FetchEnv, Request};
+pub use error::FetchError;
+pub use fetch::{Fetch, fetch, traverse};

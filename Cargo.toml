@@ -2,7 +2,29 @@
 members = [
     "runtime",
     "query-core",
+    "query-macro",
     "query-postgres",
+    "postgres-fetch",
     "tokio-postgres",
 ]
 resolver = "3"
+
+[workspace.dependencies]
+criterion = "0.8.2"
+derive-where = "1.6.1"
+fortuples = "0.9.1"
+futures-util = "0.3.32"
+heck = "0.5.0"
+indexmap = "2.14.0"
+lru = "0.18.4"
+parking_lot = "0.12.5"
+placeholder-query-core = { path = "query-core" }
+placeholder-query-macro = { path = "query-macro" }
+placeholder-query-postgres = { path = "query-postgres" }
+placeholder-query-postgres-fetch = { path = "postgres-fetch" }
+placeholder-query-runtime = { path = "runtime" }
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = "3.0.3"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tokio-postgres = "0.7.17"

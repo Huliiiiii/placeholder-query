@@ -1,12 +1,16 @@
-use placeholder_query_core::ident::TableAlias;
+use placeholder_query_core::types::Ident;
 
-use super::projection::Projection;
+#[derive(Clone, Debug)]
+pub struct TableSchema<C> {
+    pub(crate) name: Ident,
+    pub(crate) columns: C,
+}
 
-pub trait Table {
-    type Row;
-    type Columns: Clone + Projection<Output = Self::Row>;
-
-    const NAME: &'static str;
-
-    fn bind_alias(alias: TableAlias) -> Self::Columns;
+impl<C> TableSchema<C> {
+    pub fn new(name: impl Into<Ident>, columns: C) -> Self {
+        Self {
+            name: name.into(),
+            columns,
+        }
+    }
 }

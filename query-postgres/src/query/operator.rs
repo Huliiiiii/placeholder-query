@@ -5,9 +5,20 @@ pub enum UnaryOp {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BinaryOp {
+    Add,
+    Sub,
     And,
     Or,
     Eq,
-    In,
+    EqAny,
+    EqAll,
+    Gt,
+    GtAny,
+    GtAll,
+    Gte,
+    GteAny,
+    GteAll,
     Like,
+    LikeAny,
+    LikeAll,
 }

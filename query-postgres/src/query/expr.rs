@@ -1,76 +1,151 @@
-use placeholder_query_core::expr::Expr as CoreExpr;
+use std::{fmt, marker::PhantomData, sync::Arc};
 
-use crate::{backend::Pg, value::Value};
+use placeholder_query_core::types::ParamId;
 
 use super::{
-    column::Column,
+    Erased,
+    comparison::ComparisonArg,
     operator::{BinaryOp, UnaryOp},
+    params::{Param, ParamType, SqlType},
+    relation::RelationId,
 };
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Expr(CoreExpr<Pg>);
+#[derive(Debug, PartialEq)]
+pub(crate) enum ExprNode {
+    Column {
+        relation: RelationId,
+        field: u16,
+    },
+    Param {
+        param_id: ParamId,
+        sql_type: SqlType,
+    },
+    Unary {
+        op: UnaryOp,
+        expr: Expr,
+    },
+    Binary {
+        op: BinaryOp,
+        left: Expr,
+        right: Expr,
+    },
+}
 
-impl Expr {
+#[derive_where::derive_where(Clone, PartialEq)]
+pub struct Expr<T = Erased>(pub(crate) Arc<ExprNode>, PhantomData<fn() -> T>);
+
+impl<T> fmt::Debug for Expr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T> Expr<T> {
+    pub(crate) fn from_node(node: ExprNode) -> Self {
+        Self(Arc::new(node), PhantomData)
+    }
+
+    #[doc(hidden)]
+    pub fn erase(self) -> Expr {
+        self.cast()
+    }
+
+    pub(crate) fn cast<U>(self) -> Expr<U> {
+        Expr(self.0, PhantomData)
+    }
+
+    fn binary(op: BinaryOp, left: Expr, right: Expr) -> Self {
+        Self::from_node(ExprNode::Binary { op, left, right })
+    }
+
+    pub(crate) fn map_relations(self, map: &impl Fn(RelationId) -> RelationId) -> Self {
+        let node = match &*self.0 {
+            ExprNode::Column {
+                relation: relation_id,
+                field,
+            } => ExprNode::Column {
+                relation: map(*relation_id),
+                field: *field,
+            },
+            ExprNode::Param { .. } => return self,
+            ExprNode::Unary { op, expr } => ExprNode::Unary {
+                op: op.clone(),
+                expr: expr.clone().map_relations(map),
+            },
+            ExprNode::Binary { op, left, right } => ExprNode::Binary {
+                op: op.clone(),
+                left: left.clone().map_relations(map),
+                right: right.clone().map_relations(map),
+            },
+        };
+        Self::from_node(node)
+    }
+
+    fn compare(
+        self,
+        scalar: BinaryOp,
+        any: BinaryOp,
+        all: BinaryOp,
+        right: impl Into<ComparisonArg<T>>,
+    ) -> Expr<bool> {
+        let (op, right): (BinaryOp, Expr) = match right.into() {
+            ComparisonArg::Scalar(right) => (scalar, right.erase()),
+            ComparisonArg::Any(right) => (any, right.erase()),
+            ComparisonArg::All(right) => (all, right.erase()),
+        };
+        Expr::binary(op, self.erase(), right)
+    }
+
+    pub fn eq(self, right: impl Into<ComparisonArg<T>>) -> Expr<bool> {
+        self.compare(BinaryOp::Eq, BinaryOp::EqAny, BinaryOp::EqAll, right)
+    }
+
+    pub fn gt(self, right: impl Into<ComparisonArg<T>>) -> Expr<bool> {
+        self.compare(BinaryOp::Gt, BinaryOp::GtAny, BinaryOp::GtAll, right)
+    }
+
+    pub fn gte(self, right: impl Into<ComparisonArg<T>>) -> Expr<bool> {
+        self.compare(BinaryOp::Gte, BinaryOp::GteAny, BinaryOp::GteAll, right)
+    }
+}
+
+impl Expr<bool> {
     pub fn and(self, right: Self) -> Self {
-        Self(CoreExpr::binary(BinaryOp::And, self.0, right.0))
+        Self::binary(BinaryOp::And, self.erase(), right.erase())
     }
 
     pub fn or(self, right: Self) -> Self {
-        Self(CoreExpr::binary(BinaryOp::Or, self.0, right.0))
+        Self::binary(BinaryOp::Or, self.erase(), right.erase())
     }
 
     pub fn not(self) -> Self {
-        Self(CoreExpr::unary(UnaryOp::Not, self.0))
+        Self::unary(UnaryOp::Not, self)
+    }
+
+    fn unary(op: UnaryOp, expr: Self) -> Self {
+        Self::from_node(ExprNode::Unary {
+            op,
+            expr: expr.erase(),
+        })
     }
 }
 
-impl From<Value> for Expr {
-    fn from(value: Value) -> Self {
-        Self(CoreExpr::value(value))
+impl Expr<String> {
+    pub fn like(self, pattern: impl Into<ComparisonArg<String>>) -> Expr<bool> {
+        self.compare(
+            BinaryOp::Like,
+            BinaryOp::LikeAny,
+            BinaryOp::LikeAll,
+            pattern,
+        )
     }
 }
 
-impl From<CoreExpr<Pg>> for Expr {
-    fn from(value: CoreExpr<Pg>) -> Self {
-        Self(value)
+impl<T: ParamType> From<Param<T>> for Expr<T> {
+    fn from(param: Param<T>) -> Self {
+        Self::from_node(ExprNode::Param {
+            param_id: param.id,
+            sql_type: T::ty(),
+        })
     }
 }
-
-impl From<Expr> for CoreExpr<Pg> {
-    fn from(value: Expr) -> Self {
-        value.0
-    }
-}
-
-impl<T> From<Column<T>> for Expr {
-    fn from(value: Column<T>) -> Self {
-        Self(value.into())
-    }
-}
-
-macro_rules! impl_from_value_type_for_expr {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl From<$ty> for Expr {
-                fn from(value: $ty) -> Self {
-                    Self::from(Value::from(value))
-                }
-            }
-        )*
-    };
-}
-
-impl_from_value_type_for_expr!(
-    i8,
-    i16,
-    i32,
-    i64,
-    u8,
-    u16,
-    u32,
-    f32,
-    f64,
-    &str,
-    String,
-    Vec<u8>,
-);
