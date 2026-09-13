@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "benchmarks",
     "runtime",
     "query-core",
     "query-macro",
@@ -23,8 +24,9 @@ placeholder-query-macro = { path = "query-macro" }
 placeholder-query-postgres = { path = "query-postgres" }
 placeholder-query-postgres-fetch = { path = "postgres-fetch" }
 placeholder-query-runtime = { path = "runtime" }
+placeholder-query-tokio-postgres = { path = "tokio-postgres" }
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = "3.0.3"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
-tokio-postgres = "0.7.17"
+tokio-postgres = "0.7.18"
