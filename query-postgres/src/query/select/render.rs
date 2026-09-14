@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::{
-    ast::{Join, Order, SelectAst},
+    ast::{Join, JoinKind, Order, SelectAst},
     scope::{Binding, Scope, bind_sources},
 };
 
@@ -59,7 +59,7 @@ impl Renderer {
         self.sql.push_str(" FROM ");
         self.render_source(bindings[0], parent);
 
-        self.render_joins(&body.joins, &bindings, &scope, parent);
+        self.render_joins(&body.from.joins, &bindings, &scope);
 
         self.render_filters(&body.filters, &scope);
         self.render_orders(&body.orders, &scope);
@@ -73,26 +73,30 @@ impl Renderer {
         }
     }
 
-    fn render_joins(
-        &mut self,
-        joins: &[Join],
-        bindings: &[Binding<'_>],
-        scope: &Scope<'_>,
-        parent: Option<&Scope<'_>>,
-    ) {
+    fn render_joins(&mut self, joins: &[Join], bindings: &[Binding<'_>], scope: &Scope<'_>) {
         for (index, join) in joins.iter().enumerate() {
             let right = bindings[index + 1];
-            match join {
-                Join::Inner { on, .. } => {
-                    self.sql.push_str(" JOIN ");
-                    self.render_source(right, parent);
-                    self.sql.push_str(" ON ");
-                    self.render_expr(on, &scope.prefix(index + 2));
-                }
-                Join::Lateral(_) => {
-                    self.sql.push_str(" CROSS JOIN LATERAL ");
-                    self.render_source(right, Some(&scope.prefix(index + 1)));
-                }
+            let keyword = match join.kind {
+                JoinKind::Cross => " CROSS JOIN ",
+                JoinKind::Inner => " INNER JOIN ",
+                JoinKind::Left => " LEFT JOIN ",
+                JoinKind::Right => " RIGHT JOIN ",
+                JoinKind::Full => " FULL JOIN ",
+            };
+            self.sql.push_str(keyword);
+            if join.lateral {
+                self.sql.push_str("LATERAL ");
+            }
+            let left_scope = scope.prefix(index + 1);
+            let parent = if join.lateral {
+                Some(&left_scope)
+            } else {
+                scope.parent
+            };
+            self.render_source(right, parent);
+            if let Some(on) = &join.on {
+                self.sql.push_str(" ON ");
+                self.render_expr(on, &scope.prefix(index + 2));
             }
         }
     }
@@ -162,11 +166,15 @@ impl Renderer {
                     self.sql.push(')');
                 }
             }
+            RelationNode::Projection { .. } => {
+                unreachable!("projection should be lowered")
+            }
         }
     }
 
     fn render_expr(&mut self, expr: &Expr, scope: &Scope<'_>) {
         match &*expr.0 {
+            ExprNode::Boolean(value) => self.sql.push_str(if *value { "TRUE" } else { "FALSE" }),
             ExprNode::Column {
                 relation: relation_id,
                 field,
@@ -177,21 +185,26 @@ impl Renderer {
                     RelationNode::Table { fields, .. } => {
                         self.render_ident(&fields[*field as usize]);
                     }
-                    RelationNode::DerivedTable(_) => write!(self.sql, "c{field}").unwrap(),
+                    RelationNode::DerivedTable(_) | RelationNode::Projection { .. } => {
+                        write!(self.sql, "c{field}").unwrap();
+                    }
                     RelationNode::Unnest(fields) => {
                         self.render_ident(fields[*field as usize].name);
                     }
                 }
             }
             ExprNode::Param { param_id, sql_type } => self.render_param(*param_id, sql_type),
-            ExprNode::Unary {
-                op: UnaryOp::Not,
-                expr,
-            } => {
-                self.sql.push_str("NOT (");
-                self.render_expr(expr, scope);
-                self.sql.push(')');
-            }
+            ExprNode::Unary { op, expr } => match op {
+                UnaryOp::Not => {
+                    self.sql.push_str("NOT (");
+                    self.render_expr(expr, scope);
+                    self.sql.push(')');
+                }
+                UnaryOp::IsNotNull => {
+                    self.render_operand(expr, scope);
+                    self.sql.push_str(" IS NOT NULL");
+                }
+            },
             ExprNode::Binary { op, left, right } => match op {
                 BinaryOp::Add => self.render_infix(" + ", left, right, scope),
                 BinaryOp::Sub => self.render_infix(" - ", left, right, scope),

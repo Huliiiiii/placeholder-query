@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, measurement::WallTime};
 use placeholder_query_macro::{QueryInput, table};
 use placeholder_query_postgres::query::{
-    any, mode, select as pg, select::template::SelectTemplate,
+    any, mode, projection::OptionalRow, select as pg, select::template::SelectTemplate,
 };
 use placeholder_query_tokio_postgres::Executor;
 use tokio::runtime::Runtime;
@@ -39,6 +39,11 @@ struct Ids {
     ids: Vec<i32>,
 }
 
+#[derive(QueryInput)]
+struct HairColor {
+    hair_color: Option<String>,
+}
+
 fn users() -> SelectTemplate<User<mode::Expr>> {
     pg::from(User::table()).compile()
 }
@@ -57,10 +62,32 @@ fn comments() -> SelectTemplate<Comment<mode::Expr>, Ids> {
     .compile()
 }
 
+fn users_with_posts() -> SelectTemplate<(User<mode::Expr>, OptionalRow<Post<mode::Expr>>), HairColor>
+{
+    pg::query::<HairColor, _>(|input| {
+        pg::from(User::table())
+            .left_join(Post::table())
+            .on(|user, post| user.id().eq(post.user_id()))
+            .filter(|(user, _)| user.hair_color().eq(input.hair_color))
+    })
+    .compile()
+}
+
 pub fn construction(c: &mut Criterion) {
     c.benchmark_group("query_build/trivial")
         .bench_function("placeholder_query", |b| {
             b.iter(|| pg::from(std::hint::black_box(User::table())));
+        });
+    c.benchmark_group("query_build/medium")
+        .bench_function("placeholder_query", |b| {
+            b.iter(|| {
+                pg::query::<HairColor, _>(|input| {
+                    pg::from(std::hint::black_box(User::table()))
+                        .left_join(std::hint::black_box(Post::table()))
+                        .on(|user, post| user.id().eq(post.user_id()))
+                        .filter(|(user, _)| user.hair_color().eq(input.hair_color))
+                })
+            });
         });
     c.benchmark_group("query_build/associations")
         .bench_function("placeholder_query", |b| {
@@ -80,10 +107,51 @@ pub fn construction(c: &mut Criterion) {
         });
     c.benchmark_group("template_compile/trivial")
         .bench_function("placeholder_query", |b| b.iter(users));
+    c.benchmark_group("template_compile/medium")
+        .bench_function("placeholder_query", |b| b.iter(users_with_posts));
     c.benchmark_group("template_compile/associations")
         .bench_function("placeholder_query", |b| {
             b.iter(|| (users(), posts(), comments()));
         });
+}
+
+pub fn medium(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    runtime: &Runtime,
+    url: &str,
+    fixture: &Fixture,
+) {
+    let executor = Executor::new(runtime.block_on(fixture::connect(url)));
+    let query = users_with_posts();
+    let filter = HairColor {
+        hair_color: Some("black".to_owned()),
+    };
+    fixture.assert_medium(
+        runtime
+            .block_on(executor.run(query.bind(&filter)))
+            .unwrap()
+            .into_iter()
+            .map(|(user, post)| {
+                (
+                    fixture_user(user),
+                    post.map(|post| fixture::Post {
+                        id: post.id,
+                        user_id: post.user_id,
+                        title: post.title,
+                        body: post.body,
+                    }),
+                )
+            })
+            .collect(),
+    );
+
+    group.bench_function(
+        BenchmarkId::new("placeholder_query", fixture.users.len()),
+        |b| {
+            b.to_async(runtime)
+                .iter(|| async { executor.run(query.bind(&filter)).await.unwrap() });
+        },
+    );
 }
 
 pub fn trivial(

@@ -1,14 +1,12 @@
-use std::sync::Arc;
-
 use crate::query::{
-    Ident, Projection,
+    Expr, Ident, Projection,
     columns::{Columns, Rebind},
     mode,
     relation::{Relation, UnnestColumn},
     table::TableSchema,
 };
 
-use super::Select;
+use super::{Select, ast::FromClause};
 
 /// A typed relation occurrence used by `FROM` or `JOIN`.
 pub struct Source<P> {
@@ -29,15 +27,46 @@ impl<P> Source<P> {
     }
 }
 
+impl<P: Projection> Source<P> {
+    pub(super) fn project(from: FromClause, projection: P) -> Self {
+        let mut exprs = Vec::new();
+        projection.visit_fields(&mut |expr: &Expr| exprs.push(expr.clone()));
+
+        let relation = Relation::project(from, exprs);
+        let projection = relation.bind_at(&projection, 0);
+        Self {
+            relation,
+            projection,
+        }
+    }
+
+    pub(super) fn with_maybe_tag(self) -> (Self, Expr<bool>) {
+        let Source {
+            relation,
+            projection: (tag, projection),
+        } = Source::project(
+            FromClause::new(self.relation),
+            (Expr::true_literal(), self.projection),
+        );
+        (
+            Self {
+                relation,
+                projection,
+            },
+            tag,
+        )
+    }
+}
+
 impl<C: Columns<mode::Name>> From<TableSchema<C>> for Source<<C as Rebind>::Rebound<mode::Expr>> {
     fn from(table: TableSchema<C>) -> Self {
-        let mut names = Vec::new();
+        let mut fields = Vec::new();
         table
             .columns
-            .visit_fields(&mut |name: &Ident| names.push(name.clone()));
+            .visit_fields(&mut |name: &Ident| fields.push(name.clone()));
 
-        let relation = Relation::table(table.name, names);
-        let projection = relation.bind::<mode::Name, _>(&table.columns);
+        let relation = Relation::table(table.name, fields);
+        let projection = relation.bind_at(&table.columns, 0);
 
         Self {
             relation,
@@ -51,13 +80,16 @@ impl<P: Projection> From<Select<P, ()>> for Source<P> {
         let Select {
             body, projection, ..
         } = query;
+        let mut exprs = Vec::new();
+        projection.visit_fields(&mut |expr: &Expr| exprs.push(expr.clone()));
+
         let ast = super::ast::SelectAst {
             body,
-            projection: projection.select_exprs(),
+            projection: exprs,
         };
 
-        let relation = Relation::derived_table(Arc::new(ast));
-        let projection = relation.bind::<mode::Expr, _>(&projection);
+        let relation = Relation::derived_table(Box::new(ast));
+        let projection = relation.bind_at(&projection, 0);
 
         Self {
             relation,

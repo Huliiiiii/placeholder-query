@@ -109,7 +109,7 @@ where
         let names = K::names();
 
         Source::unnest(K::Fields::columns(self.scope, K::NAMES), |relation| {
-            relation.bind::<mode::Name, _>(&names)
+            relation.bind_at(&names, 0)
         })
     }
 }

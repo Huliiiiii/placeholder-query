@@ -12,6 +12,7 @@ use super::{
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum ExprNode {
+    Boolean(bool),
     Column {
         relation: RelationId,
         field: u16,
@@ -58,24 +59,28 @@ impl<T> Expr<T> {
         Self::from_node(ExprNode::Binary { op, left, right })
     }
 
-    pub(crate) fn map_relations(self, map: &impl Fn(RelationId) -> RelationId) -> Self {
+    pub(crate) fn map_columns(
+        self,
+        map: &mut (impl FnMut(RelationId, u16) -> (RelationId, u16) + ?Sized),
+    ) -> Self {
         let node = match &*self.0 {
+            ExprNode::Boolean(_) => return self,
             ExprNode::Column {
                 relation: relation_id,
                 field,
-            } => ExprNode::Column {
-                relation: map(*relation_id),
-                field: *field,
-            },
+            } => {
+                let (relation, field) = map(*relation_id, *field);
+                ExprNode::Column { relation, field }
+            }
             ExprNode::Param { .. } => return self,
             ExprNode::Unary { op, expr } => ExprNode::Unary {
                 op: op.clone(),
-                expr: expr.clone().map_relations(map),
+                expr: expr.clone().map_columns(map),
             },
             ExprNode::Binary { op, left, right } => ExprNode::Binary {
                 op: op.clone(),
-                left: left.clone().map_relations(map),
-                right: right.clone().map_relations(map),
+                left: left.clone().map_columns(map),
+                right: right.clone().map_columns(map),
             },
         };
         Self::from_node(node)
@@ -110,6 +115,14 @@ impl<T> Expr<T> {
 }
 
 impl Expr<bool> {
+    pub(crate) fn true_literal() -> Self {
+        Self::from_node(ExprNode::Boolean(true))
+    }
+
+    pub(crate) fn is_not_null(self) -> Self {
+        Self::unary(UnaryOp::IsNotNull, self)
+    }
+
     pub fn and(self, right: Self) -> Self {
         Self::binary(BinaryOp::And, self.erase(), right.erase())
     }

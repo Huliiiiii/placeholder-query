@@ -97,9 +97,11 @@ fn expand_table(input: &DeriveInput, table_name: &LitStr) -> syn::Result<TokenSt
             pub fn table() -> #crate_path::query::table::TableSchema<
                 #ident<#(#arguments,)* #crate_path::query::mode::Name>
             > {
+                let columns: #ident<#(#arguments,)* #crate_path::query::mode::Name> =
+                    #ident { #(#defaults,)* };
                 #crate_path::query::table::TableSchema::new(
                     #table_name,
-                    #ident { #(#defaults,)* },
+                    columns,
                 )
             }
         }

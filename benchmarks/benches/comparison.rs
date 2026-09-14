@@ -35,7 +35,7 @@ fn comparison(c: &mut Criterion) {
         sqlx::medium(&mut group, &runtime, &url, &fixture);
         sea_orm::medium(&mut group, &runtime, &url, &fixture);
         tokio_postgres::medium(&mut group, &runtime, &url, &fixture);
-        // TODO: Add placeholder-query when its query builder supports LEFT JOIN.
+        placeholder_query::medium(&mut group, &runtime, &url, &fixture);
     }
     group.finish();
 

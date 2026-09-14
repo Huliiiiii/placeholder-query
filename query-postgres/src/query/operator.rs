@@ -1,6 +1,7 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     Not,
+    IsNotNull,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -14,7 +14,7 @@ pub use expr::Expr;
 pub use operator::{BinaryOp, UnaryOp};
 pub use order::OrderExpr;
 pub use placeholder_query_core::types::Ident;
-pub use projection::{MappedProjection, Projection, ProjectionExt};
+pub use projection::{MappedProjection, OptionalRow, Projection, ProjectionExt};
 
 #[doc(hidden)]
 pub enum Erased {}

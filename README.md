@@ -89,8 +89,9 @@ pub struct PostWithAuthor {
 }
 
 let posts_with_authors = pg::from(Post::table())
-    .join(User::table(), |(post, author)| {
-        post.author_id().eq(author.id())
+    .join(User::table())
+    .on(|post, author| {
+        author.id().eq(post.author_id())
     })
     .map(|(post, author)| PostWithAuthor {
         title: post.title,
@@ -103,7 +104,7 @@ let posts_with_authors = pg::from(Post::table())
 ```sql
 SELECT t0."title", t0."body", t0."author_id", t1."name"
 FROM "post" AS t0
-JOIN "user" AS t1 ON t0."author_id" = t1."id"
+INNER JOIN "user" AS t1 ON t1."id" = t0."author_id"
 ```
 
 `join` can be chained, making it similar to `zip`.
@@ -116,11 +117,13 @@ pub struct TaggedPost {
 }
 
 let tagged_posts = pg::from(Post::table())
-    .join(PostTag::table(), |(post, post_tag)| {
-        post.id().eq(post_tag.post_id())
+    .join(PostTag::table())
+    .on(|post, post_tag| {
+        post_tag.post_id().eq(post.id())
     })
-    .join(Tag::table(), |((_, post_tag), tag)| {
-        post_tag.tag_id().eq(tag.id())
+    .join(Tag::table())
+    .on(|(_, post_tag), tag| {
+        tag.id().eq(post_tag.tag_id())
     })
     .map(|((post, _), tag)| TaggedPost {
         title: post.title,
@@ -132,45 +135,93 @@ let tagged_posts = pg::from(Post::table())
 ```sql
 SELECT t0."title", t2."name"
 FROM "post" AS t0
-JOIN "post_tag" AS t1 ON t0."id" = t1."post_id"
-JOIN "tag" AS t2 ON t1."tag_id" = t2."id"
+INNER JOIN "post_tag" AS t1 ON t1."post_id" = t0."id"
+INNER JOIN "tag" AS t2 ON t2."id" = t1."tag_id"
 ```
 
-#### Lateral join
+#### Outer joins
 
-Use `lateral` when the joined query needs columns from the current row.
+`left_join` preserves the left input and returns `(left, OptionalRow<right>)`.
+`right_join` preserves the right input and returns `(OptionalRow<left>, right)`.
+
+Use `OptionalRow::map` to select fields from the optional side.
 
 ```rust
-#[row(derive(Clone, Debug))]
-pub struct LatestPostByAuthor {
-    pub author_name: String,
-    pub title: String,
-}
-
-let latest_posts_by_author = pg::from(User::table())
-    .lateral(|author| {
-        pg::from(Post::table())
-            .filter(|post| post.author_id().eq(author.id()))
-            .order_by(|post| post.id().desc())
-            .limit(1)
-            .map(|post| LatestPostByAuthor {
-                author_name: author.name,
-                title: post.title,
-            })
+let authors_with_posts = pg::from(User::table())
+    .left_join(Post::table())
+    .on(|author, post| {
+        post.author_id().eq(author.id())
     })
+    .map(|(author, post)| (author.name, post.map(|post| (post.id, post.title))))
     .compile();
 ```
 
 ```sql
-SELECT t1.c0, t1.c1
+SELECT t0."name", t1.c0, t1.c1, t1.c3
 FROM "user" AS t0
-CROSS JOIN LATERAL (
-    SELECT t0."name", t2."title"
+LEFT JOIN (
+    SELECT TRUE, t2."id", t2."author_id", t2."title", t2."body"
     FROM "post" AS t2
-    WHERE t2."author_id" = t0."id"
-    ORDER BY t2."id" DESC
-    LIMIT 1
-) AS t1(c0, c1)
+) AS t1(c0, c1, c2, c3, c4) ON t1.c2 = t0."id"
+```
+
+Execution returns `Vec<(String, Option<(i32, String)>)>`.
+
+```rust
+let posts_right_join_authors = pg::from(Post::table())
+    .right_join(User::table())
+    .on(|post, author| {
+        post.author_id().eq(author.id())
+    })
+    .map(|(post, author)| (post.map(|post| (post.id, post.title)), author.name))
+    .compile();
+```
+
+```sql
+SELECT t0.c0, t0.c1, t0.c3, t1."name"
+FROM (
+    SELECT TRUE, t2."id", t2."author_id", t2."title", t2."body"
+    FROM "post" AS t2
+) AS t0(c0, c1, c2, c3, c4)
+RIGHT JOIN "user" AS t1 ON t0.c2 = t1."id"
+```
+
+Execution returns `Vec<(Option<(i32, String)>, String)>`
+
+#### Lateral joins
+
+```rust
+#[row(derive(Clone, Debug))]
+pub struct LatestPost {
+    pub title: String,
+}
+
+let authors_with_latest_post = pg::from(User::table())
+    .left_join_lateral(|author| {
+        pg::from(Post::table())
+            .filter(|post| post.author_id().eq(author.id()))
+            .order_by(|post| post.id().desc())
+            .limit(1)
+            .map(|post| LatestPost { title: post.title })
+    })
+    .on_true()
+    .map(|(author, latest_post)| (author.name, latest_post))
+    .compile();
+```
+
+```sql
+SELECT t0."name", t1.c0, t1.c1
+FROM "user" AS t0
+LEFT JOIN LATERAL (
+    SELECT TRUE, t2.c0
+    FROM (
+        SELECT t3."title"
+        FROM "post" AS t3
+        WHERE t3."author_id" = t0."id"
+        ORDER BY t3."id" DESC
+        LIMIT 1
+    ) AS t2(c0)
+) AS t1(c0, c1) ON TRUE
 ```
 
 ### Transform results
@@ -191,7 +242,7 @@ SELECT t0.c0
 FROM (
     SELECT t1."title", t1."body", t1."author_id", t2."name"
     FROM "post" AS t1
-    JOIN "user" AS t2 ON t1."author_id" = t2."id"
+    INNER JOIN "user" AS t2 ON t2."id" = t1."author_id"
 ) AS t0(c0, c1, c2, c3)
 ORDER BY t0.c0
 ```
@@ -232,7 +283,7 @@ SELECT t0.c0, t0.c3, t0.c2 = $1
 FROM (
     SELECT t1."title", t1."body", t1."author_id", t2."name"
     FROM "post" AS t1
-    JOIN "user" AS t2 ON t1."author_id" = t2."id"
+    INNER JOIN "user" AS t2 ON t2."id" = t1."author_id"
 ) AS t0(c0, c1, c2, c3)
 ORDER BY t0.c0
 ```
@@ -268,7 +319,7 @@ SELECT t0.c0, t0.c1, t0.c2, t0.c3
 FROM (
     SELECT t1."title", t1."body", t1."author_id", t2."name"
     FROM "post" AS t1
-    JOIN "user" AS t2 ON t1."author_id" = t2."id"
+    INNER JOIN "user" AS t2 ON t2."id" = t1."author_id"
 ) AS t0(c0, c1, c2, c3)
 ORDER BY t0.c0
 ```
@@ -307,11 +358,13 @@ pub struct PostsByTag {
 
 let tag_posts = pg::query::<[PostsByTag], _>(|reqs| {
     pg::from(reqs.unnest())
-        .join(PostTag::table(), |(req, post_tag)| {
-            req.tag_id.clone().eq(post_tag.tag_id())
+        .join(PostTag::table())
+        .on(|req, post_tag| {
+            post_tag.tag_id().eq(req.tag_id())
         })
-        .join(Post::table(), |((_, post_tag), post)| {
-            post_tag.post_id().eq(post.id())
+        .join(Post::table())
+        .on(|(_, post_tag), post| {
+            post.id().eq(post_tag.post_id())
         })
         .order_by(|(_, post)| post.id().asc())
         .map(|((req, _), post)| (req, post))
@@ -322,8 +375,8 @@ let tag_posts = pg::query::<[PostsByTag], _>(|reqs| {
 ```sql
 SELECT t0."tag_id", t2."id", t2."author_id", t2."title", t2."body"
 FROM unnest($1::integer[]) AS t0("tag_id")
-JOIN "post_tag" AS t1 ON t0."tag_id" = t1."tag_id"
-JOIN "post" AS t2 ON t1."post_id" = t2."id"
+INNER JOIN "post_tag" AS t1 ON t1."tag_id" = t0."tag_id"
+INNER JOIN "post" AS t2 ON t2."id" = t1."post_id"
 ORDER BY t2."id"
 ```
 
@@ -428,11 +481,13 @@ impl DataSource<PostsByTag> for Executor {
     ) -> Result<HashMap<PostsByTag, Vec<Post>>, Error> {
         let posts_by_tags = pg::query::<[PostsByTag], _>(|reqs| {
             pg::from(reqs.unnest())
-                .join(PostTag::table(), |(req, post_tag)| {
-                    req.tag_id.clone().eq(post_tag.tag_id())
+                .join(PostTag::table())
+                .on(|req, post_tag| {
+                    post_tag.tag_id().eq(req.tag_id())
                 })
-                .join(Post::table(), |((_, post_tag), post)| {
-                    post_tag.post_id().eq(post.id())
+                .join(Post::table())
+                .on(|(_, post_tag), post| {
+                    post.id().eq(post_tag.post_id())
                 })
                 .order_by(|(_, post)| post.id().asc())
                 .map(|((req, _), post)| (req, post))
@@ -443,31 +498,4 @@ impl DataSource<PostsByTag> for Executor {
     }
 }
 
-```
-
-Use `LazyLock` to build and compile a query once, then reuse it across batches:
-
-```rust
-use std::sync::LazyLock;
-use placeholder_query_postgres::query::select::template::SelectTemplate;
-
-impl DataSource<UserById> for Executor {
-    async fn fetch<'a>(
-        &self,
-        reqs: impl IntoIterator<Item = &'a UserById>,
-    ) -> Result<HashMap<UserById, User>, Error> {
-        static USERS_BY_ID: LazyLock<
-            SelectTemplate<(UserByIdColumns, User<mode::Expr>), [UserById]>,
-        > = LazyLock::new(|| {
-            pg::query::<[UserById], _>(|reqs| {
-                pg::from(reqs.unnest())
-                    .join(User::table(), |(req, user)| req.id().eq(user.id()))
-                    .map(|(req, user)| (req, user))
-            })
-            .compile()
-        });
-
-        self.fetch_batch(&USERS_BY_ID, reqs).await
-    }
-}
 ```

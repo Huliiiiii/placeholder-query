@@ -9,36 +9,11 @@ use crate::query::{
 
 use super::{
     Select,
-    ast::{Join, Order, rebind},
+    ast::{Order, rebind},
     predicate::IntoPredicates,
-    source::Source,
 };
 
 impl<Columns, Input: ?Sized> Select<Columns, Input> {
-    pub fn join<P>(
-        mut self,
-        source: impl Into<Source<P>>,
-        on: impl FnOnce(&(Columns, P)) -> Expr<bool>,
-    ) -> Select<(Columns, P), Input> {
-        let Source {
-            relation,
-            projection,
-        } = source.into();
-        let columns = (self.projection, projection);
-
-        self.body.joins.push(Join::Inner {
-            relation,
-            on: on(&columns).erase(),
-        });
-
-        Select {
-            body: self.body,
-            projection: columns,
-            input_scope: self.input_scope,
-            _input: PhantomData,
-        }
-    }
-
     pub fn filter<P: IntoPredicates>(mut self, filter: impl FnOnce(&Columns) -> P) -> Self {
         self.body
             .filters
@@ -58,20 +33,6 @@ impl<Columns, Input: ?Sized> Select<Columns, Input> {
     pub fn limit(mut self, limit: u64) -> Self {
         self.body.limit = Some(limit);
         self
-    }
-
-    pub fn lateral<P, Q: Into<Source<P>>>(
-        mut self,
-        build: impl FnOnce(Columns) -> Q,
-    ) -> Select<P, Input> {
-        let source = build(self.projection).into();
-        self.body.joins.push(Join::Lateral(source.relation));
-        Select {
-            body: self.body,
-            projection: source.projection,
-            input_scope: self.input_scope,
-            _input: PhantomData,
-        }
     }
 
     pub fn map<P>(self, map: impl FnOnce(Columns) -> P) -> Select<P, Input> {

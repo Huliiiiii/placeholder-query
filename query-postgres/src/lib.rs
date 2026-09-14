@@ -8,5 +8,7 @@ mod statement;
 pub use derive_where as __derive_where;
 
 pub use query::select::Select;
-pub use query::{BinaryOp, Expr, Ident, MappedProjection, Projection, ProjectionExt, UnaryOp};
+pub use query::{
+    BinaryOp, Expr, Ident, MappedProjection, OptionalRow, Projection, ProjectionExt, UnaryOp,
+};
 pub use statement::Statement;

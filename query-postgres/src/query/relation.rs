@@ -11,7 +11,7 @@ use super::{
     expr::ExprNode,
     mode::{self, Mode},
     params::{ArrayElement, Param, SqlType},
-    select::ast::SelectAst,
+    select::ast::{FromClause, SelectAst, rebind},
 };
 
 #[doc(hidden)]
@@ -33,25 +33,32 @@ impl UnnestColumn {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) enum RelationNode {
-    Table { table: Ident, fields: Arc<[Ident]> },
+    Table {
+        table: Ident,
+        fields: Arc<[Ident]>,
+    },
     Unnest(Arc<[UnnestColumn]>),
-    DerivedTable(Arc<SelectAst>),
+    DerivedTable(Box<SelectAst>),
+    Projection {
+        from: Box<FromClause>,
+        exprs: Vec<Expr>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RelationId(u64);
 
 impl RelationId {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
         Self(NEXT_ID.fetch_add(1, Ordering::Relaxed))
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Relation {
     pub(crate) id: RelationId,
     pub(crate) node: RelationNode,
@@ -75,10 +82,20 @@ impl Relation {
         }
     }
 
-    pub(crate) fn derived_table(query: Arc<SelectAst>) -> Self {
+    pub(crate) fn derived_table(query: Box<SelectAst>) -> Self {
         Self {
             id: RelationId::new(),
             node: RelationNode::DerivedTable(query),
+        }
+    }
+
+    pub(crate) fn project(from: FromClause, exprs: Vec<Expr>) -> Self {
+        Self {
+            id: RelationId::new(),
+            node: RelationNode::Projection {
+                from: Box::new(from),
+                exprs,
+            },
         }
     }
 
@@ -91,28 +108,44 @@ impl Relation {
         })
     }
 
-    pub(crate) fn bind<M: Mode, C: Columns<M>>(
+    pub(crate) fn bind_at<M: Mode, C: Columns<M>>(
         &self,
         columns: &C,
+        index: usize,
     ) -> <C as Rebind>::Rebound<mode::Expr> {
         columns.map_fields(&mut BindColumns {
             relation: self,
-            index: 0,
+            index,
         })
     }
 
-    pub(crate) fn freshen(&self, bindings: &[(RelationId, RelationId)]) -> Self {
+    pub(crate) fn freshen(&self, bindings: &mut Vec<(RelationId, RelationId)>) -> Self {
         let node = match &self.node {
             RelationNode::DerivedTable(query) => {
-                RelationNode::DerivedTable(Arc::new(query.freshen(bindings).0))
+                RelationNode::DerivedTable(Box::new(query.freshen(bindings).0))
             }
-            relation_node => relation_node.clone(),
+            RelationNode::Projection { from, exprs } => {
+                let from = from.freshen(bindings);
+                let exprs = exprs
+                    .iter()
+                    .map(|expr| rebind(expr.clone(), bindings))
+                    .collect();
+                RelationNode::Projection {
+                    from: Box::new(from),
+                    exprs,
+                }
+            }
+            RelationNode::Table { table, fields } => RelationNode::Table {
+                table: table.clone(),
+                fields: fields.clone(),
+            },
+            RelationNode::Unnest(columns) => RelationNode::Unnest(columns.clone()),
         };
 
-        Self {
-            id: RelationId::new(),
-            node,
-        }
+        let id = RelationId::new();
+        // Push new binding to replace all references to this relation with the new relation id.
+        bindings.push((self.id, id));
+        Self { id, node }
     }
 }
 

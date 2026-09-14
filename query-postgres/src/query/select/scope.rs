@@ -1,6 +1,6 @@
 use crate::query::relation::{Relation, RelationId};
 
-use super::ast::{Join, SelectBody};
+use super::ast::SelectBody;
 
 #[derive(Clone, Copy)]
 pub(super) struct Binding<'a> {
@@ -9,10 +9,8 @@ pub(super) struct Binding<'a> {
 }
 
 pub(super) fn bind_sources<'a>(body: &'a SelectBody, next_alias: &mut usize) -> Vec<Binding<'a>> {
-    std::iter::once(&body.from)
-        .chain(body.joins.iter().map(|join| match join {
-            Join::Inner { relation, .. } | Join::Lateral(relation) => relation,
-        }))
+    std::iter::once(&body.from.source)
+        .chain(body.from.joins.iter().map(|join| &join.relation))
         .map(|relation| {
             let alias = *next_alias;
             *next_alias += 1;

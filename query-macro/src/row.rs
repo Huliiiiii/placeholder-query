@@ -213,6 +213,9 @@ impl Input {
             .iter()
             .map(|Field { ident, .. }| ident.clone())
             .collect::<Vec<_>>();
+        let exprs = self.fields.iter().map(|Field { ident, .. }| {
+            quote_spanned! {Span::mixed_site()=> self.#ident.clone().erase() }
+        });
         let fields = self.fields.iter().map(|ident| {
             let field = &ident.ident;
             quote_spanned! {Span::mixed_site()=>
@@ -223,6 +226,11 @@ impl Input {
             impl #implementation #pg::projection::Projection for #ident<#(#value_arguments,)* #expr> #clause {
                 type Fields = (#(#fields_type,)*);
                 type Output = #value_type;
+
+                fn to_exprs(&self) -> ::std::vec::Vec<#pg::Expr> {
+                    ::std::vec![#(#exprs,)*]
+                }
+
                 fn from_fields(&self, fields: Self::Fields) -> Self::Output {
                     let (#(#field_idents,)*) = fields;
                     #value_constructor { #(#fields,)* }

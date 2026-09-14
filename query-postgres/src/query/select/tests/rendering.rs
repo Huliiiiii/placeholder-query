@@ -1,6 +1,6 @@
 use crate::query::{any, select as pg};
 
-use super::{Filters, Foo};
+use super::{Filters, Foo, User};
 
 #[test]
 fn identifiers_are_escaped() {
@@ -48,5 +48,84 @@ fn comparison_operands_are_grouped() {
     assert_eq!(
         query.compile().statement().sql(),
         r#"SELECT (t0."id" = $1) = (t0."name" LIKE $2) FROM "foo" AS t0"#
+    );
+}
+
+#[test]
+fn full_join_preserves_inputs_and_maybe_tags() {
+    let query = pg::query::<Filters, _>(|params| {
+        let left = pg::from(Foo::table());
+        let right = pg::from(Foo::table())
+            .filter(|foo| foo.name().like(params.pattern))
+            .limit(2);
+
+        left.full_join(right)
+            .on(|left, right| left.id().eq(right.id()))
+            .map(|(left, right)| (left.map(|foo| foo.name), right.map(|foo| foo.name)))
+    });
+
+    assert_sql!(
+        query.compile().statement().sql(),
+        r#"
+        SELECT t0.c0 IS NOT NULL, t0.c2, t1.c0 IS NOT NULL, t1.c2
+        FROM (
+            SELECT TRUE, t2."id", t2."name"
+            FROM "foo" AS t2
+        ) AS t0(c0, c1, c2)
+        FULL JOIN (
+            SELECT TRUE, t3.c0, t3.c1
+            FROM (
+                SELECT t4."id", t4."name"
+                FROM "foo" AS t4
+                WHERE t4."name" LIKE $1
+                LIMIT 2
+            ) AS t3(c0, c1)
+        ) AS t1(c0, c1, c2)
+        ON t0.c1 = t1.c1
+        "#
+    );
+}
+
+#[test]
+fn filters_can_reuse_columns_across_outer_joins() {
+    let query = pg::query::<Filters, _>(|params| {
+        let mut original = None;
+        let users = pg::from(User::table()).map(|user| {
+            let id = user.id();
+            original = Some(user);
+            id
+        });
+        let user = original.unwrap();
+
+        users
+            .full_join(Foo::table())
+            .on(|_, foo| user.id().eq(foo.id()))
+            .right_join(User::table())
+            .on(|_, other| user.id().eq(other.id()))
+            .filter(|_| user.email().eq(params.pattern))
+            .order_by(|_| user.name().asc())
+            .map(|(_, other)| other.id)
+    });
+
+    assert_sql!(
+        query.compile().statement().sql(),
+        r#"
+        SELECT t1."id"
+        FROM (
+            SELECT TRUE, t2.c0, t2.c1, t3.c0, t3.c1, t3.c2, t2.c2, t2.c3
+            FROM (
+                SELECT TRUE, t4."id", t4."name", t4."email"
+                FROM "users" AS t4
+            ) AS t2(c0, c1, c2, c3)
+            FULL JOIN (
+                SELECT TRUE, t5."id", t5."name"
+                FROM "foo" AS t5
+            ) AS t3(c0, c1, c2)
+            ON t2.c1 = t3.c1
+        ) AS t0(c0, c1, c2, c3, c4, c5, c6, c7)
+        RIGHT JOIN "users" AS t1 ON t0.c2 = t1."id"
+        WHERE t0.c7 = $1
+        ORDER BY t0.c6
+        "#
     );
 }
