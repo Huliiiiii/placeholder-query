@@ -1,7 +1,21 @@
-use crate::query::params::SqlType;
+use crate::query::params::{QueryInput, SqlType};
 use crate::query::{Expr, any, select as pg};
 
 use super::{Filters, Foo};
+
+#[test]
+fn borrowed_values_can_be_used_as_query_parameters() {
+    #[derive(placeholder_query_macro::QueryInput)]
+    struct BorrowedUserFilter<'a> {
+        id: i32,
+        name: &'a String,
+    }
+
+    let name = String::from("Ada");
+    let input = BorrowedUserFilter { id: 1, name: &name };
+
+    assert_eq!(input.values(), (&1, &name));
+}
 
 #[test]
 fn array_inputs_bind_as_one_parameter() {

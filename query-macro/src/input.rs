@@ -1,21 +1,25 @@
-use syn::{Data, DeriveInput, Fields, Ident, Type, Visibility};
+use syn::{Data, DeriveInput, Fields, Generics, Ident, Type, Visibility};
 
 pub(crate) struct Input<'a> {
     pub(crate) ident: &'a Ident,
     pub(crate) visibility: &'a Visibility,
+    pub(crate) generics: &'a Generics,
     pub(crate) fields: Vec<Field<'a>>,
 }
 
 pub(crate) struct Field<'a> {
     pub(crate) ident: &'a Ident,
     pub(crate) ty: &'a Type,
+    pub(crate) borrowed: bool,
 }
 
 pub(crate) fn parse(input: &DeriveInput) -> syn::Result<Input<'_>> {
-    if !input.generics.params.is_empty() {
+    if input.generics.type_params().next().is_some()
+        || input.generics.const_params().next().is_some()
+    {
         return Err(syn::Error::new_spanned(
             &input.generics,
-            "QueryInput does not support generic structs",
+            "QueryInput supports lifetime parameters, but not type or const parameters",
         ));
     }
 
@@ -31,9 +35,18 @@ pub(crate) fn parse(input: &DeriveInput) -> syn::Result<Input<'_>> {
         Fields::Named(fields) => fields
             .named
             .iter()
-            .map(|field| Field {
-                ident: field.ident.as_ref().expect("named field"),
-                ty: &field.ty,
+            .map(|field| {
+                let (ty, borrowed) = match &field.ty {
+                    Type::Reference(reference) if reference.mutability.is_none() => {
+                        (&*reference.elem, true)
+                    }
+                    _ => (&field.ty, false),
+                };
+                Field {
+                    ident: field.ident.as_ref().expect("named field"),
+                    ty,
+                    borrowed,
+                }
             })
             .collect(),
         Fields::Unit => Vec::new(),
@@ -48,6 +61,7 @@ pub(crate) fn parse(input: &DeriveInput) -> syn::Result<Input<'_>> {
     Ok(Input {
         ident,
         visibility: &input.vis,
+        generics: &input.generics,
         fields,
     })
 }

@@ -13,6 +13,7 @@ pub(super) fn expand(
     let Input {
         ident,
         visibility,
+        generics,
         fields,
     } = input;
 
@@ -20,17 +21,17 @@ pub(super) fn expand(
     let mode = Ident::new("__InputMode", Span::mixed_site());
     let target = Ident::new("__TargetMode", Span::mixed_site());
 
-    let declarations = fields.iter().map(|Field { ident, ty }| {
+    let declarations = fields.iter().map(|Field { ident, ty, .. }| {
         quote! { pub #ident: <#mode as #pg::mode::Mode>::Field<#ty> }
     });
 
     let visitor = Ident::new("visitor", Span::mixed_site());
-    let visits = fields.iter().map(|Field { ident, ty }| {
+    let visits = fields.iter().map(|Field { ident, ty, .. }| {
         quote! { #visitor.visit::<#ty>(&self.#ident); }
     });
 
     let transformer = Ident::new("transformer", Span::mixed_site());
-    let transforms = fields.iter().map(|Field { ident, ty }| {
+    let transforms = fields.iter().map(|Field { ident, ty, .. }| {
         quote! { #ident: #transformer.transform::<#ty>(&self.#ident) }
     });
 
@@ -51,13 +52,23 @@ pub(super) fn expand(
             quote! { #ident: #pg::Projection::from_fields(&self.#ident, #decoded.#index) }
         });
 
-    let accessors = fields.iter().map(|Field { ident, ty }| {
+    let accessors = fields.iter().map(|Field { ident, ty, .. }| {
         quote! {
             pub fn #ident(&self) -> #pg::Expr<#ty> {
                 self.#ident.clone()
             }
         }
     });
+
+    let (output, constructor) =
+        if generics.params.is_empty() && fields.iter().all(|field| !field.borrowed) {
+            (quote!(#ident), quote!(#ident))
+        } else {
+            (
+                quote!(#fields_ident<#pg::mode::Value>),
+                quote!(#fields_ident),
+            )
+        };
 
     quote! {
         #[doc(hidden)]
@@ -95,10 +106,10 @@ pub(super) fn expand(
 
         impl #pg::Projection for #fields_ident<#pg::mode::Expr> {
             type Fields = (#(#field_types,)*);
-            type Output = #ident;
+            type Output = #output;
 
             fn from_fields(&self, #decoded: Self::Fields) -> Self::Output {
-                #ident { #(#decoded_fields,)* }
+                #constructor { #(#decoded_fields,)* }
             }
         }
 

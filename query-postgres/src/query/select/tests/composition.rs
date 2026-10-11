@@ -36,12 +36,12 @@ struct Contact {
 #[test]
 fn array_inputs_behave_like_tables() {
     #[derive(QueryInput)]
-    struct UserLookup {
+    struct UserLookup<'a> {
         id: i32,
-        name: String,
+        name: &'a String,
     }
 
-    let query = pg::query::<[UserLookup], _>(|inputs| {
+    let query = pg::query::<[UserLookup<'_>], _>(|inputs| {
         pg::from(inputs.unnest())
             .join(User::table())
             .on(|input, user| input.id().eq(user.id()).and(input.name().eq(user.name())))

@@ -9,6 +9,7 @@ use crate::input::{self, Field};
 pub(crate) fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
     let input = input::parse(&input)?;
     let ident = input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let params_path = quote!(::placeholder_query_postgres::query::params);
     let query_path = quote!(::placeholder_query_postgres::query);
@@ -16,7 +17,7 @@ pub(crate) fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
 
     if input.fields.is_empty() {
         return Ok(quote! {
-            impl #record_path::InputRecord for #ident {
+            impl #impl_generics #record_path::InputRecord for #ident #ty_generics #where_clause {
                 type Fields = ();
                 type Names = ();
 
@@ -52,15 +53,22 @@ pub(crate) fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
         })
         .collect::<Vec<_>>();
 
-    let values = input
-        .fields
-        .iter()
-        .map(|Field { ident, .. }| quote! { &self.#ident });
+    let values = input.fields.iter().map(
+        |Field {
+             ident, borrowed, ..
+         }| {
+            if *borrowed {
+                quote! { self.#ident }
+            } else {
+                quote! { &self.#ident }
+            }
+        },
+    );
 
     Ok(quote! {
         #view
 
-        impl #record_path::InputRecord for #ident {
+        impl #impl_generics #record_path::InputRecord for #ident #ty_generics #where_clause {
             type Fields = (#(#types,)*);
             type Names = #fields_ident<#query_path::mode::Name>;
 
