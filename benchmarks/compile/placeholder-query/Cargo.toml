@@ -1,0 +1,13 @@
+[package]
+name = "placeholder-query-compile-benchmark"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bigdecimal = "0.4.11"
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+placeholder-query-macro = { path = "../../../query-macro" }
+placeholder-query-postgres = { path = "../../../query-postgres" }
+
+[workspace]

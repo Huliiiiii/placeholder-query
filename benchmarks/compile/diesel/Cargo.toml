@@ -1,0 +1,12 @@
+[package]
+name = "diesel-compile-benchmark"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bigdecimal = "0.4.11"
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+diesel = { version = "2.3.13", default-features = false, features = ["postgres_backend", "chrono", "numeric"] }
+
+[workspace]
