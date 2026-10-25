@@ -1,82 +1,39 @@
+mod computation;
 mod continuation;
 mod data_cache;
 mod request_store;
 mod result;
-mod run_queue;
+mod state;
+mod value;
 
-use std::{collections::hash_map::Entry, future::poll_fn, marker::PhantomData, task::Poll, vec};
+use std::{future::poll_fn, marker::PhantomData, task::Poll};
 
 use futures_util::{StreamExt, stream::FuturesUnordered};
 
 use crate::{
     FetchError,
-    batch::{DataSource, FetchEnv, Request},
+    batch::{DataSource, Env, Request},
 };
 
-use continuation::{Computation, Job, Step, StepFn, Value};
-use data_cache::DataCache;
-use request_store::{ExecuteBatchFuture, RequestStore};
-use result::{ResultId, ResultSlot, ResultSlots};
-use run_queue::RunQueue;
+use computation::{Computation, Resumption, Step};
+use continuation::Continuation;
+use request_store::ExecuteBatchFuture;
+use state::FetchState;
+use value::Value;
 
 pub struct Fetch<E, A> {
-    computation: Computation<E>,
-    _output: PhantomData<fn() -> A>,
+    comp: Computation<E>,
+    _output: PhantomData<fn(A) -> A>,
 }
 
-#[derive_where::derive_where(Default)]
-struct FetchState<E> {
-    data_cache: DataCache,
-    reqs: RequestStore<E>,
-    results: ResultSlots<E>,
-    runnable: RunQueue<E>,
-}
-
-impl<E> FetchState<E> {
-    fn when_ready(&mut self, id: ResultId, resume: StepFn<E>) -> Step<'_, E> {
-        match &mut self.results[id] {
-            ResultSlot::Pending(waiters) => Step::Blocked(waiters, resume),
-            ResultSlot::Ready(_) => resume(self),
-            ResultSlot::Taken => unreachable!("cannot wait for a consumed result"),
-        }
-    }
-
-    fn complete(&mut self, id: ResultId, value: Value) {
-        let ResultSlot::Pending(waiters) =
-            std::mem::replace(&mut self.results[id], ResultSlot::Ready(value))
-        else {
-            unreachable!("a result can only be completed once")
-        };
-
-        self.runnable.prepend(waiters);
-    }
-
-    fn get<A: 'static>(&self, id: ResultId) -> &A {
-        let ResultSlot::Ready(value) = &self.results[id] else {
-            unreachable!("only ready results can be read")
-        };
-
-        value
-            .downcast_ref()
-            .expect("result type should match its computation")
-    }
-
-    fn take<A: 'static>(&mut self, id: ResultId) -> A {
-        let ResultSlot::Ready(value) = std::mem::replace(&mut self.results[id], ResultSlot::Taken)
-        else {
-            unreachable!("a computation result can only be taken once")
-        };
-
-        *value
-            .downcast()
-            .expect("result type should match its computation")
-    }
-
-    fn take_ready<A: 'static>(&mut self, id: ResultId) -> Option<A> {
-        if self.results[id].is_ready() {
-            Some(self.take(id))
-        } else {
-            None
+impl<E, A> From<Resumption<E>> for Fetch<E, A> {
+    fn from(resumption: Resumption<E>) -> Self {
+        Self {
+            comp: Computation {
+                resumption,
+                conts: Vec::new(),
+            },
+            _output: PhantomData,
         }
     }
 }
@@ -86,24 +43,18 @@ impl<E, A> Fetch<E, A> {
     where
         A: 'static,
     {
-        Self::from_step_fn(|_| Step::ready(value))
+        Self::from(Resumption::new(|_| Step::Ready(Value::new(value))))
     }
 
-    pub fn map<C>(self, map: impl FnOnce(A) -> C + 'static) -> Fetch<E, C>
+    pub fn map<C>(mut self, map: impl FnOnce(A) -> C + 'static) -> Fetch<E, C>
     where
         A: 'static,
         C: 'static,
     {
-        let mut computation = self.computation;
-        computation.conts.push(Box::new(|value| {
-            let value = *value
-                .downcast::<A>()
-                .expect("map input should match fetch output");
-            Fetch::pure(map(value)).computation
-        }));
+        self.comp.conts.push(Continuation::map(map));
 
         Fetch {
-            computation,
+            comp: self.comp,
             _output: PhantomData,
         }
     }
@@ -114,54 +65,39 @@ impl<E, A> Fetch<E, A> {
         A: 'static,
         C: 'static,
     {
-        Fetch::from_step_fn(|state| {
-            let left_id = state.results.alloc();
-            let right_id = state.results.alloc();
-            state.runnable.prepend([
-                Job::new(self.computation, left_id),
-                Job::new(other.computation, right_id),
-            ]);
+        Fetch::from(Resumption::with(
+            vec![self.comp, other.comp],
+            |state, children| {
+                let Ok([left, right]) = <[_; 2]>::try_from(children) else {
+                    unreachable!("zip should have exactly two children");
+                };
+                let right_id = state.schedule(right);
+                let left_id = state.schedule(left);
 
-            state.when_ready(
-                left_id,
-                Box::new(move |state| {
-                    let left = state.take::<A>(left_id);
-                    state.when_ready(
-                        right_id,
-                        Box::new(move |state| Step::ready((left, state.take::<C>(right_id)))),
-                    )
-                }),
-            )
-        })
+                state.when_ready(left_id, move |state| {
+                    let left = state.results.take(left_id).unwrap().into_inner::<A>();
+
+                    state.when_ready(right_id, move |state| {
+                        let right = state.results.take(right_id).unwrap().into_inner::<C>();
+
+                        Step::Ready(Value::new((left, right)))
+                    })
+                })
+            },
+        ))
     }
 
-    pub fn and_then<C>(self, then: impl FnOnce(A) -> Fetch<E, C> + 'static) -> Fetch<E, C>
+    pub fn and_then<C>(mut self, then: impl FnOnce(A) -> Fetch<E, C> + 'static) -> Fetch<E, C>
     where
         A: 'static,
         C: 'static,
     {
-        let mut computation = self.computation;
-        computation.conts.push(Box::new(|value| {
-            let value = *value
-                .downcast::<A>()
-                .expect("bind input should match fetch output");
-            then(value).computation
-        }));
+        self.comp
+            .conts
+            .push(Continuation::bind(|value| then(value).comp));
 
         Fetch {
-            computation,
-            _output: PhantomData,
-        }
-    }
-
-    fn from_step_fn(
-        step: impl for<'a> FnOnce(&'a mut FetchState<E>) -> Step<'a, E> + 'static,
-    ) -> Self {
-        Self {
-            computation: Computation {
-                step: Box::new(step),
-                conts: Vec::new(),
-            },
+            comp: self.comp,
             _output: PhantomData,
         }
     }
@@ -169,32 +105,36 @@ impl<E, A> Fetch<E, A> {
 
 impl<E, A> Fetch<E, A>
 where
-    E: FetchEnv,
+    E: Env,
     A: 'static,
 {
     pub(crate) async fn run_with(self, env: &E) -> Result<A, FetchError<E::Error>> {
         const POLL_BUDGET: usize = 256;
 
-        let mut state = FetchState::default();
-        let root_id = state.results.alloc();
-        state
-            .runnable
-            .prepend([Job::new(self.computation, root_id)]);
+        let mut state = FetchState::new();
+        let root_id = state.schedule(self.comp);
         let mut jobs = FuturesUnordered::<ExecuteBatchFuture<'_, E>>::new();
 
         poll_fn(|cx| {
-            for _ in 0..POLL_BUDGET {
-                if let Some(job) = state.runnable.next() {
-                    job.run(&mut state);
+            let mut budget = POLL_BUDGET;
+
+            while budget > 0 {
+                budget -= 1;
+                if let Some(job) = state.runnable.pop() {
+                    job.run(&mut state, &mut budget);
                     continue;
                 }
 
-                if let Some(value) = state.take_ready::<A>(root_id) {
-                    return Poll::Ready(Ok(value));
+                if let Some(value) = state.results.take(root_id) {
+                    return Poll::Ready(Ok(value.into_inner::<A>()));
                 }
 
                 match jobs.poll_next_unpin(cx) {
-                    Poll::Ready(Some(Ok(complete))) => complete(&mut state),
+                    Poll::Ready(Some(Ok(complete))) => {
+                        for (rvar, value) in complete {
+                            state.complete(rvar, value);
+                        }
+                    }
                     Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(error)),
                     Poll::Ready(None) | Poll::Pending => {
                         let pending = state.reqs.take_jobs(env);
@@ -218,50 +158,46 @@ where
     }
 }
 
-fn collect<E, A: 'static>(
-    mut ids: vec::IntoIter<ResultId>,
-    mut values: Vec<A>,
-    state: &mut FetchState<E>,
-) -> Step<'_, E> {
-    for id in ids.by_ref() {
-        if let Some(value) = state.take_ready::<A>(id) {
-            values.push(value);
-        } else {
-            return state.when_ready(
-                id,
-                Box::new(move |state| {
-                    values.push(state.take::<A>(id));
-                    collect(ids, values, state)
-                }),
-            );
-        }
-    }
-
-    Step::ready(values)
-}
-
 pub fn fetch<E, R>(req: R) -> Fetch<E, R::Output>
 where
     E: DataSource<R>,
-    R: Request + Clone + 'static,
+    R: Request + 'static,
     R::Output: Clone + 'static,
 {
-    Fetch::from_step_fn(move |state| {
-        let id = match state.data_cache.entry(req.clone()) {
-            Entry::Occupied(entry) => *entry.get(),
-            Entry::Vacant(entry) => {
-                let id = state.results.alloc();
-                entry.insert(id);
-                state.reqs.insert(req, id);
-                id
-            }
-        };
+    Fetch::from(Resumption::new(move |state| {
+        let id = state.register(req);
 
-        state.when_ready(
-            id,
-            Box::new(move |state| Step::ready(state.get::<R::Output>(id).clone())),
-        )
-    })
+        state.when_ready(id, move |state| {
+            Step::Ready(Value::new(
+                state
+                    .results
+                    .get(id)
+                    .unwrap()
+                    .downcast_ref::<R::Output>()
+                    .clone(),
+            ))
+        })
+    }))
+}
+
+fn collect<E, A: 'static>(
+    mut id_stack: Vec<result::ResultId>,
+    mut values: Vec<A>,
+    state: &mut FetchState<E>,
+) -> Step<E> {
+    while let Some(&id) = id_stack.last() {
+        if let Some(value) = state.results.take(id) {
+            id_stack.pop();
+            values.push(value.into_inner::<A>());
+        } else {
+            return Step::Blocked(
+                id,
+                Resumption::new(move |state| collect(id_stack, values, state)),
+            );
+        };
+    }
+
+    Step::Ready(Value::new(values))
 }
 
 pub fn traverse<E, T, C>(
@@ -272,24 +208,23 @@ where
     E: 'static,
     C: 'static,
 {
-    let fetches = items.into_iter().map(fetch).collect::<Vec<_>>();
+    let comps = items
+        .into_iter()
+        .map(|item| fetch(item).comp)
+        .collect::<Vec<_>>();
 
-    if fetches.is_empty() {
+    if comps.is_empty() {
         return Fetch::pure(Vec::new());
     }
 
-    Fetch::from_step_fn(|state| {
-        let ids = fetches
-            .iter()
-            .map(|_| state.results.alloc())
-            .collect::<Vec<_>>();
-        state.runnable.prepend(
-            fetches
-                .into_iter()
-                .zip(ids.iter().copied())
-                .map(|(fetch, id)| Job::new(fetch.computation, id)),
-        );
+    Fetch::from(Resumption::with(comps, |state, comps| {
+        let mut id_stack = Vec::with_capacity(comps.len());
+        let values = Vec::<C>::with_capacity(comps.len());
 
-        collect::<E, C>(ids.into_iter(), Vec::new(), state)
-    })
+        for comp in comps.into_iter().rev() {
+            id_stack.push(state.schedule(comp));
+        }
+
+        collect(id_stack, values, state)
+    }))
 }

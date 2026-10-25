@@ -1274,7 +1274,6 @@ name = "placeholder-query-runtime"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "derive-where",
  "futures-util",
  "indexmap",
 ]

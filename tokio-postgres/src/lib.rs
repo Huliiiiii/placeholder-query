@@ -16,7 +16,7 @@ use placeholder_query_postgres::{
     },
 };
 use placeholder_query_postgres_fetch::{CardinalityError, FromRows};
-use placeholder_query_runtime::{Fetch, FetchEnv, FetchError, Request};
+use placeholder_query_runtime::{Env, Fetch, FetchError, Request};
 use tokio_postgres::Client;
 
 use decode::{DecodeRow, RowDecoder};
@@ -104,7 +104,7 @@ impl Executor {
         reqs: impl IntoIterator<Item = &'input R>,
     ) -> Result<HashMap<R, R::Output>, Error>
     where
-        R: Request + InputRecord + Clone + 'input,
+        R: Request + InputRecord + 'input,
         R::Output: FromRows<V>,
         R::Fields: ArrayFields,
         <R::Fields as ArrayFields>::Arrays<'input>: BindParams,
@@ -192,7 +192,7 @@ where
     type Output = A;
 
     async fn run_on(self, executor: &Executor) -> Result<Self::Output, ExecError> {
-        FetchEnv::run(executor, self).await
+        Env::run(executor, self).await
     }
 }
 
@@ -246,6 +246,6 @@ where
     }
 }
 
-impl FetchEnv for Executor {
+impl Env for Executor {
     type Error = Error;
 }

@@ -7,7 +7,7 @@ use std::{
 };
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use placeholder_query_runtime::{DataSource, Fetch, FetchEnv, Request, fetch, traverse};
+use placeholder_query_runtime::{DataSource, Env, Fetch, Request, fetch, traverse};
 
 #[derive(Clone)]
 struct User {
@@ -24,20 +24,14 @@ struct Post {
     id: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct UserById(usize);
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct CardById(usize);
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct PostsByAuthor(usize);
-
 struct BenchBackend;
 
-impl FetchEnv for BenchBackend {
+impl Env for BenchBackend {
     type Error = Infallible;
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct UserById(usize);
 
 impl Request for UserById {
     type Output = Option<User>;
@@ -55,6 +49,9 @@ impl DataSource<UserById> for BenchBackend {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct CardById(usize);
+
 impl Request for CardById {
     type Output = Option<Card>;
 }
@@ -70,6 +67,9 @@ impl DataSource<CardById> for BenchBackend {
             .collect()))
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct PostsByAuthor(usize);
 
 impl Request for PostsByAuthor {
     type Output = Vec<Post>;

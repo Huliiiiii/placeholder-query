@@ -1,12 +1,10 @@
 mod support;
 
-use std::{cell::RefCell, collections::HashMap};
+use std::{any::Any, cell::RefCell, collections::HashMap};
 
-use placeholder_query_runtime::{
-    DataSource, Fetch, FetchEnv, FetchError, Request, fetch, traverse,
-};
+use placeholder_query_runtime::{DataSource, Env, Request, fetch, traverse};
 
-use support::{TestWake, run_future, yield_once};
+use support::executor::run;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct User {
@@ -26,36 +24,20 @@ struct Post {
     author_id: i32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct UserById(i32);
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct UserCardById(i32);
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct FeedPosts;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum BatchRequest {
-    Users(Vec<i32>),
-    UserCards(Vec<i32>),
-    FeedPosts,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct RequestError;
-
 #[derive(Default)]
 struct TestBackend {
     users: Vec<User>,
     user_cards: Vec<UserCard>,
     posts: Vec<Post>,
-    reqs: RefCell<Vec<BatchRequest>>,
+    reqs: RefCell<Vec<Box<dyn Any>>>,
 }
 
-impl FetchEnv for TestBackend {
-    type Error = RequestError;
+impl Env for TestBackend {
+    type Error = ();
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct UserById(i32);
 
 impl Request for UserById {
     type Output = Option<User>;
@@ -65,24 +47,21 @@ impl DataSource<UserById> for TestBackend {
     async fn fetch<'a>(
         &self,
         reqs: impl IntoIterator<Item = &'a UserById>,
-    ) -> Result<HashMap<UserById, Option<User>>, RequestError> {
-        let reqs = reqs.into_iter().collect::<Vec<_>>();
+    ) -> Result<HashMap<UserById, Option<User>>, ()> {
+        let mut results = HashMap::new();
+        for req in reqs {
+            let user = self.users.iter().find(|user| user.id == req.0).cloned();
+            assert!(results.insert(req.clone(), user).is_none());
+        }
 
-        self.reqs
-            .borrow_mut()
-            .push(BatchRequest::Users(reqs.iter().map(|req| req.0).collect()));
-        yield_once().await;
+        self.reqs.borrow_mut().push(Box::new(results.clone()));
 
-        Ok(reqs
-            .into_iter()
-            .cloned()
-            .map(|req| {
-                let user = self.users.iter().find(|user| user.id == req.0).cloned();
-                (req, user)
-            })
-            .collect())
+        Ok(results)
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct UserCardById(i32);
 
 impl Request for UserCardById {
     type Output = Option<UserCard>;
@@ -92,28 +71,25 @@ impl DataSource<UserCardById> for TestBackend {
     async fn fetch<'a>(
         &self,
         reqs: impl IntoIterator<Item = &'a UserCardById>,
-    ) -> Result<HashMap<UserCardById, Option<UserCard>>, RequestError> {
-        let reqs = reqs.into_iter().collect::<Vec<_>>();
+    ) -> Result<HashMap<UserCardById, Option<UserCard>>, ()> {
+        let mut results = HashMap::new();
+        for req in reqs {
+            let card = self
+                .user_cards
+                .iter()
+                .find(|card| card.id == req.0)
+                .cloned();
+            assert!(results.insert(req.clone(), card).is_none());
+        }
 
-        self.reqs.borrow_mut().push(BatchRequest::UserCards(
-            reqs.iter().map(|req| req.0).collect(),
-        ));
-        yield_once().await;
+        self.reqs.borrow_mut().push(Box::new(results.clone()));
 
-        Ok(reqs
-            .into_iter()
-            .cloned()
-            .map(|req| {
-                let card = self
-                    .user_cards
-                    .iter()
-                    .find(|card| card.id == req.0)
-                    .cloned();
-                (req, card)
-            })
-            .collect())
+        Ok(results)
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct FeedPosts;
 
 impl Request for FeedPosts {
     type Output = Vec<Post>;
@@ -123,63 +99,41 @@ impl DataSource<FeedPosts> for TestBackend {
     async fn fetch<'a>(
         &self,
         reqs: impl IntoIterator<Item = &'a FeedPosts>,
-    ) -> Result<HashMap<FeedPosts, Vec<Post>>, RequestError> {
-        self.reqs.borrow_mut().push(BatchRequest::FeedPosts);
-        yield_once().await;
+    ) -> Result<HashMap<FeedPosts, Vec<Post>>, ()> {
+        let mut results = HashMap::new();
+        for req in reqs {
+            assert!(results.insert(req.clone(), self.posts.clone()).is_none());
+        }
 
-        Ok(reqs
-            .into_iter()
-            .map(|req| (req.clone(), self.posts.clone()))
-            .collect())
+        self.reqs.borrow_mut().push(Box::new(results.clone()));
+
+        Ok(results)
     }
 }
 
-fn run_fetch<A>(
-    fetch: Fetch<TestBackend, A>,
-    backend: TestBackend,
-) -> (Result<A, FetchError<RequestError>>, Vec<BatchRequest>)
-where
-    A: 'static,
-{
-    let result = run_future(FetchEnv::run(&backend, fetch), TestWake::new());
-
-    (result, backend.reqs.into_inner())
-}
-
-fn assert_batches(actual: &[BatchRequest], expected: &[BatchRequest]) {
-    let batch_counts = |reqs: &[BatchRequest]| {
-        let mut counts = HashMap::new();
-        for mut req in reqs.iter().cloned() {
-            match &mut req {
-                BatchRequest::Users(ids) | BatchRequest::UserCards(ids) => ids.sort_unstable(),
-                BatchRequest::FeedPosts => {}
-            }
-            *counts.entry(req).or_insert(0) += 1;
-        }
-        counts
-    };
-
-    assert_eq!(batch_counts(actual), batch_counts(expected));
-}
-
 #[test]
-fn traverse_returns_results_in_input_order_after_deduping_requests() {
-    let (users, reqs) = run_fetch(
-        traverse([2, 1, 2], |id| fetch(UserById(id))),
-        TestBackend {
-            users: vec![
-                User { id: 1, name: "Mio" },
-                User {
-                    id: 2,
-                    name: "Ritsu",
-                },
-            ],
-            ..Default::default()
-        },
-    );
-    let users = users.unwrap();
+fn deduplication_preserves_results_for_each_input() {
+    let backend = TestBackend {
+        users: vec![
+            User { id: 1, name: "Mio" },
+            User {
+                id: 2,
+                name: "Ritsu",
+            },
+        ],
+        ..Default::default()
+    };
+    let users = run(backend.run(traverse([2, 1, 2, 1], |id| fetch(UserById(id))))).unwrap();
 
-    assert_batches(&reqs, &[BatchRequest::Users(vec![2, 1])]);
+    let reqs = backend.reqs.into_inner();
+    assert_eq!(reqs.len(), 1);
+    let batch = reqs[0]
+        .downcast_ref::<HashMap<UserById, Option<User>>>()
+        .unwrap();
+
+    assert_eq!(batch.len(), 2);
+    assert!(batch.contains_key(&UserById(1)));
+    assert!(batch.contains_key(&UserById(2)));
     assert_eq!(
         users,
         vec![
@@ -192,32 +146,35 @@ fn traverse_returns_results_in_input_order_after_deduping_requests() {
                 id: 2,
                 name: "Ritsu"
             }),
+            Some(User { id: 1, name: "Mio" }),
         ]
     );
 }
 
 #[test]
-fn different_request_types_are_cached_separately() {
-    let (result, reqs) = run_fetch(
-        fetch(UserById(7)).zip(fetch(UserCardById(7))),
-        TestBackend {
-            users: vec![User { id: 7, name: "Mio" }],
-            user_cards: vec![UserCard {
-                id: 7,
-                display_name: "Mio",
-            }],
-            ..Default::default()
-        },
-    );
-    let result = result.unwrap();
+fn different_request_types_are_fetched_separately() {
+    let backend = TestBackend {
+        users: vec![User { id: 7, name: "Mio" }],
+        user_cards: vec![UserCard {
+            id: 7,
+            display_name: "Mio",
+        }],
+        ..Default::default()
+    };
+    let result = run(backend.run(fetch(UserById(7)).zip(fetch(UserCardById(7))))).unwrap();
 
-    assert_batches(
-        &reqs,
-        &[
-            BatchRequest::Users(vec![7]),
-            BatchRequest::UserCards(vec![7]),
-        ],
-    );
+    let reqs = backend.reqs.borrow();
+    assert_eq!(reqs.len(), 2);
+    assert!(reqs.iter().any(|batch| {
+        batch
+            .downcast_ref::<HashMap<UserById, Option<User>>>()
+            .is_some_and(|batch| batch.len() == 1 && batch.contains_key(&UserById(7)))
+    }));
+    assert!(reqs.iter().any(|batch| {
+        batch
+            .downcast_ref::<HashMap<UserCardById, Option<UserCard>>>()
+            .is_some_and(|batch| batch.len() == 1 && batch.contains_key(&UserCardById(7)))
+    }));
     assert_eq!(
         result,
         (
@@ -231,27 +188,48 @@ fn different_request_types_are_cached_separately() {
 }
 
 #[test]
-fn dependent_fetch_to_same_request_reuses_cached_row() {
-    let fetch = fetch(UserById(7)).and_then(|user| match user {
-        Some(user) => fetch(UserById(user.id)),
-        None => Fetch::pure(None),
-    });
-    let (result, reqs) = run_fetch(
-        fetch,
-        TestBackend {
-            users: vec![User { id: 7, name: "Mio" }],
-            ..Default::default()
-        },
-    );
-    let result = result.unwrap();
+fn cached_results_are_reused_across_dependent_computations() {
+    let backend = TestBackend {
+        users: vec![User { id: 7, name: "Mio" }],
+        ..Default::default()
+    };
+    let computation = fetch(UserById(7)).and_then(|_| fetch(UserById(7)));
+    let result = run(backend.run(computation)).unwrap();
 
-    assert_eq!(reqs, vec![BatchRequest::Users(vec![7])]);
+    let reqs = backend.reqs.borrow();
+    assert_eq!(reqs.len(), 1);
+    let batch = reqs[0]
+        .downcast_ref::<HashMap<UserById, Option<User>>>()
+        .unwrap();
+    assert_eq!(batch.len(), 1);
+    assert!(batch.contains_key(&UserById(7)));
     assert_eq!(result, Some(User { id: 7, name: "Mio" }));
 }
 
 #[test]
-fn feed_batches_author_and_viewer_requests_before_building_the_result() {
-    let fetch = fetch(FeedPosts)
+fn requests_from_parallel_branches_are_batched_together() {
+    let backend = TestBackend {
+        users: vec![
+            User { id: 7, name: "Mio" },
+            User {
+                id: 8,
+                name: "Ritsu",
+            },
+            User { id: 9, name: "Yui" },
+        ],
+        posts: vec![
+            Post {
+                id: 10,
+                author_id: 7,
+            },
+            Post {
+                id: 20,
+                author_id: 8,
+            },
+        ],
+        ..Default::default()
+    };
+    let computation = fetch(FeedPosts)
         .and_then(|posts| {
             traverse(posts, |post| {
                 fetch(UserById(post.author_id))
@@ -269,34 +247,21 @@ fn feed_batches_author_and_viewer_requests_before_building_the_result() {
                     .collect::<Vec<_>>(),
             )
         });
-    let (result, reqs) = run_fetch(
-        fetch,
-        TestBackend {
-            users: vec![
-                User { id: 7, name: "Mio" },
-                User {
-                    id: 8,
-                    name: "Ritsu",
-                },
-                User { id: 9, name: "Yui" },
-            ],
-            posts: vec![
-                Post {
-                    id: 10,
-                    author_id: 7,
-                },
-                Post {
-                    id: 20,
-                    author_id: 8,
-                },
-            ],
-            ..Default::default()
-        },
-    );
+    let result = run(backend.run(computation)).unwrap();
 
-    assert_batches(
-        &reqs,
-        &[BatchRequest::FeedPosts, BatchRequest::Users(vec![7, 8, 9])],
-    );
-    assert_eq!(result.unwrap(), ("Yui", vec![(10, "Mio"), (20, "Ritsu")]));
+    let reqs = backend.reqs.into_inner();
+    assert_eq!(reqs.len(), 2);
+    let posts = reqs[0]
+        .downcast_ref::<HashMap<FeedPosts, Vec<Post>>>()
+        .unwrap();
+    assert_eq!(posts.len(), 1);
+    assert!(posts.contains_key(&FeedPosts));
+    let users = reqs[1]
+        .downcast_ref::<HashMap<UserById, Option<User>>>()
+        .unwrap();
+    assert_eq!(users.len(), 3);
+    assert!(users.contains_key(&UserById(7)));
+    assert!(users.contains_key(&UserById(8)));
+    assert!(users.contains_key(&UserById(9)));
+    assert_eq!(result, ("Yui", vec![(10, "Mio"), (20, "Ritsu")]));
 }

@@ -2,11 +2,11 @@ use std::{collections::HashMap, future::Future, hash::Hash};
 
 use crate::{Fetch, FetchError};
 
-pub trait Request: Eq + Hash {
+pub trait Request: Clone + Eq + Hash {
     type Output;
 }
 
-pub trait FetchEnv: Sized {
+pub trait Env: Sized {
     type Error;
 
     fn run<A>(
@@ -20,7 +20,7 @@ pub trait FetchEnv: Sized {
     }
 }
 
-pub trait DataSource<R>: FetchEnv
+pub trait DataSource<R>: Env
 where
     R: Request,
 {
