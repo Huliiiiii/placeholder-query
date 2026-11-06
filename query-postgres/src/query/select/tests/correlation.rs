@@ -1,5 +1,5 @@
 use crate::query::select as pg;
-use placeholder_query_macro::QueryInput;
+use rel9_macro::QueryInput;
 
 use super::User;
 

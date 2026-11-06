@@ -1,5 +1,5 @@
 // For name resolution of derived macros in tests
-extern crate self as placeholder_query_postgres;
+extern crate self as rel9;
 
 pub mod query;
 mod statement;

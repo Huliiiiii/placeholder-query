@@ -1,16 +1,16 @@
-# placeholder-query (Name TBD)
+# Rel9 and Ruxl
 
-placeholder-query is a set of libraries for querying databases and composing data fetches.
+Rel9 and Ruxl are libraries for querying databases and composing data fetches.
 
-It draws on [Rel8](https://github.com/circuithub/rel8), [Haxl](https://github.com/facebook/Haxl) and [sofetch](https://github.com/iand675/sofetch).
+They draw on [Rel8](https://github.com/circuithub/rel8), [Haxl](https://github.com/facebook/Haxl) and [sofetch](https://github.com/iand675/sofetch).
 
 ## Schema
 
 The following examples will use the schema below:
 
 ```rust
-use placeholder_query_macro::{QueryInput, row, table};
-use placeholder_query_postgres::{ProjectionExt, query::select as pg};
+use rel9_macro::{QueryInput, row, table};
+use rel9::{ProjectionExt, query::select as pg};
 
 #[table(derive(Clone))]
 pub struct User {
@@ -39,7 +39,7 @@ pub struct PostTag {
 }
 ```
 
-The examples import `placeholder_query_postgres::query::select` as `pg`.
+The examples import `rel9::query::select` as `pg`.
 Calls such as `pg::from` and `pg::query` come from that module.
 
 ## Queries
@@ -252,7 +252,7 @@ ORDER BY t0.c0
 Use `Select::map` to transform SQL expressions.
 
 ```rust
-use placeholder_query_postgres::query::mode;
+use rel9::query::mode;
 
 #[derive(QueryInput)]
 pub struct ListPosts {
@@ -402,7 +402,7 @@ pub fn traverse<E, T, B>(
 The next example first loads posts for a tag, then loads each post author.
 
 ```rust
-use placeholder_query_runtime::{Request, fetch, traverse};
+use ruxl::{Request, fetch, traverse};
 
 impl Request for PostsByTag {
     type Output = Vec<Post>;
@@ -453,7 +453,7 @@ Results preserve the input order and are cached for the duration of a single run
 `Executor::run` can execute compiled queries and fetch computations.
 
 ```rust
-use placeholder_query_tokio_postgres::Executor;
+use rel9_tokio_postgres::Executor;
 use tokio_postgres::NoTls;
 
 // ...
@@ -471,8 +471,8 @@ Implement `DataSource<T>` for the execution environment to interpret a request:
 
 ```rust
 use std::collections::HashMap;
-use placeholder_query_runtime::DataSource;
-use placeholder_query_tokio_postgres::Error;
+use ruxl::DataSource;
+use rel9_tokio_postgres::Error;
 
 impl DataSource<PostsByTag> for Executor {
     async fn fetch<'a>(

@@ -1,4 +1,4 @@
-use placeholder_query_postgres::query::projection::Scalar;
+use rel9::query::projection::Scalar;
 use tokio_postgres::{Error, types::FromSqlOwned};
 
 pub(super) use sealed::RowDecoder;

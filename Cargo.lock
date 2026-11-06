@@ -1226,76 +1226,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
-name = "placeholder-query-benchmarks"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "diesel",
- "futures-util",
- "placeholder-query-macro",
- "placeholder-query-postgres",
- "placeholder-query-tokio-postgres",
- "sea-orm",
- "sqlx",
- "tokio",
- "tokio-postgres",
-]
-
-[[package]]
-name = "placeholder-query-core"
-version = "0.1.0"
-
-[[package]]
-name = "placeholder-query-macro"
-version = "0.1.0"
-dependencies = [
- "heck 0.5.0",
- "proc-macro2",
- "quote",
- "syn 3.0.3",
-]
-
-[[package]]
-name = "placeholder-query-postgres"
-version = "0.1.0"
-dependencies = [
- "derive-where",
- "fortuples",
- "placeholder-query-core",
- "placeholder-query-macro",
-]
-
-[[package]]
-name = "placeholder-query-postgres-fetch"
-version = "0.1.0"
-
-[[package]]
-name = "placeholder-query-runtime"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "futures-util",
- "indexmap",
-]
-
-[[package]]
-name = "placeholder-query-tokio-postgres"
-version = "0.1.0"
-dependencies = [
- "fortuples",
- "futures-util",
- "lru",
- "parking_lot",
- "placeholder-query-core",
- "placeholder-query-macro",
- "placeholder-query-postgres",
- "placeholder-query-postgres-fetch",
- "placeholder-query-runtime",
- "tokio",
- "tokio-postgres",
-]
-
-[[package]]
 name = "plotters"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1492,6 +1422,63 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "rel9"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "fortuples",
+ "rel9-core",
+ "rel9-macro",
+]
+
+[[package]]
+name = "rel9-benchmarks"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "diesel",
+ "futures-util",
+ "rel9",
+ "rel9-macro",
+ "rel9-tokio-postgres",
+ "sea-orm",
+ "sqlx",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
+name = "rel9-core"
+version = "0.1.0"
+
+[[package]]
+name = "rel9-macro"
+version = "0.1.0"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
+
+[[package]]
+name = "rel9-tokio-postgres"
+version = "0.1.0"
+dependencies = [
+ "fortuples",
+ "futures-util",
+ "lru",
+ "parking_lot",
+ "rel9",
+ "rel9-core",
+ "rel9-macro",
+ "ruxl",
+ "ruxl-postgres",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1553,6 +1540,19 @@ name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
+
+[[package]]
+name = "ruxl"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "futures-util",
+ "indexmap",
+]
+
+[[package]]
+name = "ruxl-postgres"
+version = "0.1.0"
 
 [[package]]
 name = "same-file"

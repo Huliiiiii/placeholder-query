@@ -1,8 +1,8 @@
 mod support;
 
-use placeholder_query_macro::table;
-use placeholder_query_postgres::query::select as pg;
-use placeholder_query_tokio_postgres::ExecError;
+use rel9::query::select as pg;
+use rel9_macro::table;
+use rel9_tokio_postgres::ExecError;
 
 use support::{schema::User, seeded_executor};
 

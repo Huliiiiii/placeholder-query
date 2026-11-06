@@ -27,7 +27,7 @@ Build time excludes dependencies.
 | Library           |  Time(ms) |  Relative |
 | ----------------- | --------: | --------: |
 | SQLx              | **241.5** | **1.00×** |
-| placeholder-query |     366.8 |     1.52× |
+| rel9 |     366.8 |     1.52× |
 | Diesel            |    1193.0 |     4.96× |
 
 ### Release
@@ -35,7 +35,7 @@ Build time excludes dependencies.
 | Library           |  Time(ms) |  Relative |
 | ----------------- | --------: | --------: |
 | SQLx              | **406.5** | **1.00×** |
-| placeholder-query |     829.6 |     2.04× |
+| rel9 |     829.6 |     2.04× |
 | Diesel            |    1164.2 |     2.87× |
 
 ## Reproduce

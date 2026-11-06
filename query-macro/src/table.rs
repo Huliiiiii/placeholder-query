@@ -59,7 +59,7 @@ fn expand_table(input: &DeriveInput, table_name: &LitStr) -> syn::Result<TokenSt
         ));
     };
 
-    let crate_path = quote!(::placeholder_query_postgres);
+    let crate_path = quote!(::rel9);
 
     let ident = &input.ident;
     let generics = &input.generics;

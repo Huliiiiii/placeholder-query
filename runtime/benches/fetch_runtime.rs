@@ -7,7 +7,7 @@ use std::{
 };
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use placeholder_query_runtime::{DataSource, Env, Fetch, Request, fetch, traverse};
+use ruxl::{DataSource, Env, Fetch, Request, fetch, traverse};
 
 #[derive(Clone)]
 struct User {

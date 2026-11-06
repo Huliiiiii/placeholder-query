@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use placeholder_query_core::types::{Ident, ParamId};
+use rel9_core::types::{Ident, ParamId};
 
 use super::{
     Expr,

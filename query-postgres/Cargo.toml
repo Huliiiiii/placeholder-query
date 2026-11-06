@@ -1,12 +1,12 @@
 [package]
-name = "placeholder-query-postgres"
+name = "rel9"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 derive-where.workspace = true
 fortuples.workspace = true
-placeholder-query-core.workspace = true
+rel9-core.workspace = true
 
 [dev-dependencies]
-placeholder-query-macro.workspace = true
+rel9-macro.workspace = true

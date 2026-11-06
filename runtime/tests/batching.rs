@@ -2,7 +2,7 @@ mod support;
 
 use std::{any::Any, cell::RefCell, collections::HashMap};
 
-use placeholder_query_runtime::{DataSource, Env, Request, fetch, traverse};
+use ruxl::{DataSource, Env, Request, fetch, traverse};
 
 use support::executor::run;
 

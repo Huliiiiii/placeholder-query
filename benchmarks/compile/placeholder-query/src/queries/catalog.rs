@@ -1,8 +1,6 @@
 use bigdecimal::BigDecimal;
-use placeholder_query_macro::{QueryInput, row};
-use placeholder_query_postgres::query::{
-    Expr, OptionalRow, any, mode, select as pg, select::template::SelectTemplate,
-};
+use rel9::query::{Expr, OptionalRow, any, mode, select as pg, select::template::SelectTemplate};
+use rel9_macro::{QueryInput, row};
 
 use super::{ActorFilter, CategoryFilter, FilmFilter, LanguageFilter, StoreFilter};
 use crate::schema::{Actor, Category, Film, FilmActor, FilmCategory, Inventory, Language};

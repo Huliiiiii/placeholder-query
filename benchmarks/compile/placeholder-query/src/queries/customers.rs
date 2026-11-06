@@ -1,5 +1,5 @@
-use placeholder_query_macro::row;
-use placeholder_query_postgres::query::{mode, select as pg, select::template::SelectTemplate};
+use rel9::query::{mode, select as pg, select::template::SelectTemplate};
+use rel9_macro::row;
 
 use super::{StoreCustomerFilter, StoreFilter};
 use crate::schema::{Address, City, Country, Customer};

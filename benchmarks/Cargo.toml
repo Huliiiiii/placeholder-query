@@ -1,5 +1,5 @@
 [package]
-name = "placeholder-query-benchmarks"
+name = "rel9-benchmarks"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -9,9 +9,9 @@ license = "MIT OR Apache-2.0"
 criterion = { workspace = true, features = ["async_tokio", "html_reports"] }
 diesel = { version = "2.3.13", default-features = false, features = ["postgres"] }
 futures-util.workspace = true
-placeholder-query-macro.workspace = true
-placeholder-query-postgres.workspace = true
-placeholder-query-tokio-postgres.workspace = true
+rel9-macro.workspace = true
+rel9.workspace = true
+rel9-tokio-postgres.workspace = true
 sea-orm = { version = "2.0.2", default-features = false, features = ["macros", "sqlx-postgres", "runtime-tokio-rustls"] }
 sqlx = { version = "0.9.0", default-features = false, features = ["derive", "postgres", "runtime-tokio", "tls-rustls-ring"] }
 tokio.workspace = true

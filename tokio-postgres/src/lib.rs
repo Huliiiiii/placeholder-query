@@ -5,7 +5,7 @@ mod statement_cache;
 use std::{collections::HashMap, fmt, future::Future, num::NonZeroUsize, pin::pin};
 
 use futures_util::{Stream, StreamExt, TryStreamExt};
-use placeholder_query_postgres::{
+use rel9::{
     Projection,
     query::{
         params::{
@@ -15,8 +15,8 @@ use placeholder_query_postgres::{
         select::{BoundSelect, Select, template::SelectTemplate},
     },
 };
-use placeholder_query_postgres_fetch::{CardinalityError, FromRows};
-use placeholder_query_runtime::{Env, Fetch, FetchError, Request};
+use ruxl::{Env, Fetch, FetchError, Request};
+use ruxl_postgres::{CardinalityError, FromRows};
 use tokio_postgres::Client;
 
 use decode::{DecodeRow, RowDecoder};

@@ -1,4 +1,4 @@
-use placeholder_query_macro::table;
+use rel9_macro::table;
 
 #[table(name = "users", derive(Clone, Debug, PartialEq, Eq))]
 pub struct User {

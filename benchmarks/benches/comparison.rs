@@ -1,13 +1,13 @@
 mod support;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use support::{diesel, fixture::Fixture, placeholder_query, sea_orm, sqlx, tokio_postgres};
+use support::{diesel, fixture::Fixture, rel9, sea_orm, sqlx, tokio_postgres};
 
 fn comparison(c: &mut Criterion) {
     diesel::construction(c);
     sqlx::construction(c);
     sea_orm::construction(c);
-    placeholder_query::construction(c);
+    rel9::construction(c);
 
     let url = std::env::var("BENCH_DATABASE_URL")
         .expect("set BENCH_DATABASE_URL to a dedicated, disposable PostgreSQL database");
@@ -23,7 +23,7 @@ fn comparison(c: &mut Criterion) {
         sqlx::trivial(&mut group, &runtime, &url, &fixture);
         sea_orm::trivial(&mut group, &runtime, &url, &fixture);
         tokio_postgres::trivial(&mut group, &runtime, &url, &fixture);
-        placeholder_query::trivial(&mut group, &runtime, &url, &fixture);
+        rel9::trivial(&mut group, &runtime, &url, &fixture);
     }
     group.finish();
 
@@ -35,7 +35,7 @@ fn comparison(c: &mut Criterion) {
         sqlx::medium(&mut group, &runtime, &url, &fixture);
         sea_orm::medium(&mut group, &runtime, &url, &fixture);
         tokio_postgres::medium(&mut group, &runtime, &url, &fixture);
-        placeholder_query::medium(&mut group, &runtime, &url, &fixture);
+        rel9::medium(&mut group, &runtime, &url, &fixture);
     }
     group.finish();
 
@@ -46,7 +46,7 @@ fn comparison(c: &mut Criterion) {
     sqlx::associations(&mut group, &runtime, &url, &fixture);
     sea_orm::associations(&mut group, &runtime, &url, &fixture);
     tokio_postgres::associations(&mut group, &runtime, &url, &fixture);
-    placeholder_query::associations(&mut group, &runtime, &url, &fixture);
+    rel9::associations(&mut group, &runtime, &url, &fixture);
     group.finish();
 }
 

@@ -6,7 +6,7 @@ use std::{
 
 use lru::LruCache;
 use parking_lot::Mutex;
-use placeholder_query_postgres::{Statement, query::params::SqlType};
+use rel9::{Statement, query::params::SqlType};
 use tokio::sync::OnceCell;
 use tokio_postgres::{Client, Error, Statement as PreparedStatement};
 

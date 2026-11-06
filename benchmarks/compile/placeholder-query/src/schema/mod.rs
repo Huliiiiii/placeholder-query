@@ -1,6 +1,6 @@
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, Utc};
-use placeholder_query_macro::table;
+use rel9_macro::table;
 
 #[table(name = "actor", derive(Clone, Debug))]
 pub struct Actor {

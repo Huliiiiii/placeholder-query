@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use placeholder_query_runtime::{DataSource, Env, Fetch, Request, fetch, traverse};
+use ruxl::{DataSource, Env, Fetch, Request, fetch, traverse};
 
 use support::executor::{TestWake, run};
 

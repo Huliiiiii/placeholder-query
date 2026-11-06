@@ -1,4 +1,4 @@
-use placeholder_query_core::types::Ident;
+use rel9_core::types::Ident;
 use std::marker::PhantomData;
 
 use super::expr;

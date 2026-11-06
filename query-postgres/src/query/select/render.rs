@@ -1,6 +1,6 @@
 use std::{fmt::Write, num::NonZeroUsize};
 
-use placeholder_query_core::types::ParamId;
+use rel9_core::types::ParamId;
 
 use crate::{
     query::{

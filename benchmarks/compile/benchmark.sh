@@ -15,7 +15,7 @@ manifests=(
 labels=(
     "diesel-pagila"
     "sqlx-pagila"
-    "placeholder-query-pagila"
+    "rel9-pagila"
 )
 
 rustflags="-C link-arg=-fuse-ld=mold"

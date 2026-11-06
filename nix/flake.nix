@@ -1,5 +1,5 @@
 {
-  description = "placeholder-query development environment";
+  description = "development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

@@ -2,7 +2,7 @@ mod support;
 
 use std::collections::HashMap;
 
-use placeholder_query_runtime::{DataSource, Env, FetchError, Request, fetch, traverse};
+use ruxl::{DataSource, Env, FetchError, Request, fetch, traverse};
 
 use support::executor::run;
 

@@ -1,8 +1,6 @@
 use chrono::{DateTime, Utc};
-use placeholder_query_macro::row;
-use placeholder_query_postgres::query::{
-    Expr, OptionalRow, mode, select as pg, select::template::SelectTemplate,
-};
+use rel9::query::{Expr, OptionalRow, mode, select as pg, select::template::SelectTemplate};
+use rel9_macro::row;
 
 use super::{CustomerFilter, StoreFilter};
 use crate::schema::{Customer, Film, Inventory, Rental};

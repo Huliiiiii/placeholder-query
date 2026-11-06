@@ -1,4 +1,4 @@
-use placeholder_query_postgres::query::{mode, select as pg, select::template::SelectTemplate};
+use rel9::query::{mode, select as pg, select::template::SelectTemplate};
 
 use crate::schema::*;
 

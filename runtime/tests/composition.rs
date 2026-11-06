@@ -1,7 +1,7 @@
 mod support;
 
 use futures_util::FutureExt;
-use placeholder_query_runtime::{Env, Fetch};
+use ruxl::{Env, Fetch};
 
 use support::executor::run;
 

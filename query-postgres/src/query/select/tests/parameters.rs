@@ -5,7 +5,7 @@ use super::{Filters, Foo};
 
 #[test]
 fn borrowed_values_can_be_used_as_query_parameters() {
-    #[derive(placeholder_query_macro::QueryInput)]
+    #[derive(rel9_macro::QueryInput)]
     struct BorrowedUserFilter<'a> {
         id: i32,
         name: &'a String,

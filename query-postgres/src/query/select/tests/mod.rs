@@ -1,4 +1,4 @@
-use placeholder_query_macro::QueryInput;
+use rel9_macro::QueryInput;
 
 #[derive(QueryInput)]
 pub(super) struct Filters {
@@ -7,13 +7,13 @@ pub(super) struct Filters {
     pub(super) pattern: String,
 }
 
-#[placeholder_query_macro::table]
+#[rel9_macro::table]
 pub(super) struct Foo {
     pub(super) id: i32,
     pub(super) name: String,
 }
 
-#[placeholder_query_macro::table(name = "users")]
+#[rel9_macro::table(name = "users")]
 pub(super) struct User {
     pub(super) id: i32,
     pub(super) name: String,

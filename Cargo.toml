@@ -19,12 +19,12 @@ heck = "0.5.0"
 indexmap = "2.14.0"
 lru = "0.18.4"
 parking_lot = "0.12.5"
-placeholder-query-core = { path = "query-core" }
-placeholder-query-macro = { path = "query-macro" }
-placeholder-query-postgres = { path = "query-postgres" }
-placeholder-query-postgres-fetch = { path = "postgres-fetch" }
-placeholder-query-runtime = { path = "runtime" }
-placeholder-query-tokio-postgres = { path = "tokio-postgres" }
+rel9-core = { path = "query-core" }
+rel9-macro = { path = "query-macro" }
+rel9 = { path = "query-postgres" }
+ruxl-postgres = { path = "postgres-fetch" }
+ruxl = { path = "runtime" }
+rel9-tokio-postgres = { path = "tokio-postgres" }
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = "3.0.3"

@@ -2,7 +2,7 @@ pub mod schema;
 
 use std::env;
 
-use placeholder_query_tokio_postgres::{Error, Executor};
+use rel9_tokio_postgres::{Error, Executor};
 use tokio_postgres::NoTls;
 
 pub async fn seeded_executor() -> Result<Executor, Error> {

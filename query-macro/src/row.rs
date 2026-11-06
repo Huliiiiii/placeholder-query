@@ -57,14 +57,14 @@ pub(crate) fn expand(args: Args, mut input: DeriveInput) -> syn::Result<TokenStr
         .unwrap();
 
     input.generics.params.push(parse_quote!(
-        #mode: ::placeholder_query_postgres::query::mode::Mode = ::placeholder_query_postgres::query::mode::Value
+        #mode: ::rel9::query::mode::Mode = ::rel9::query::mode::Value
     ));
 
     let mut row_fields = Vec::new();
     for field in &mut fields.named {
         let value = field.ty.clone();
         field.ty = parse_quote!(
-            <#mode as ::placeholder_query_postgres::query::mode::Mode>::Field<#value>
+            <#mode as ::rel9::query::mode::Mode>::Field<#value>
         );
         row_fields.push(Field {
             ident: field.ident.clone().expect("named field"),
@@ -84,8 +84,8 @@ pub(crate) fn expand(args: Args, mut input: DeriveInput) -> syn::Result<TokenStr
             quote! { ; #(#types),* }
         };
         quote! {
-            #[::placeholder_query_postgres::__derive_where::derive_where(
-                crate = ::placeholder_query_postgres::__derive_where
+            #[::rel9::__derive_where::derive_where(
+                crate = ::rel9::__derive_where
             )]
             #[derive_where(#(#traits),* #bounds)]
         }
@@ -140,7 +140,7 @@ fn value_arguments(generics: &Generics) -> Vec<TokenStream> {
 
 impl Input {
     fn expand_columns(&self) -> TokenStream {
-        let pg = quote!(::placeholder_query_postgres::query);
+        let pg = quote!(::rel9::query);
         let ident = &self.ident;
         let mode = &self.generics.type_params().last().unwrap().ident;
         let generics = self.generics.clone();
@@ -193,7 +193,7 @@ impl Input {
     }
 
     fn expand_projection(&self) -> TokenStream {
-        let pg = quote!(::placeholder_query_postgres::query);
+        let pg = quote!(::rel9::query);
         let ident = &self.ident;
         let expr = quote!(#pg::mode::Expr);
         let mut generics = self.generics.clone();
@@ -240,7 +240,7 @@ impl Input {
     }
 
     fn expand_accessors(&self) -> TokenStream {
-        let pg = quote!(::placeholder_query_postgres::query);
+        let pg = quote!(::rel9::query);
         let ident = &self.ident;
         let mut generics = self.generics.clone();
         generics.params.pop();

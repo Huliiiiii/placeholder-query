@@ -1,5 +1,5 @@
 [package]
-name = "placeholder-query-tokio-postgres"
+name = "rel9-tokio-postgres"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,12 +8,12 @@ fortuples.workspace = true
 futures-util.workspace = true
 lru.workspace = true
 parking_lot.workspace = true
-placeholder-query-postgres-fetch.workspace = true
-placeholder-query-postgres.workspace = true
-placeholder-query-runtime.workspace = true
+ruxl-postgres.workspace = true
+rel9.workspace = true
+ruxl.workspace = true
 tokio-postgres.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
-placeholder-query-core.workspace = true
-placeholder-query-macro.workspace = true
+rel9-core.workspace = true
+rel9-macro.workspace = true

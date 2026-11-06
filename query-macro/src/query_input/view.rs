@@ -17,7 +17,7 @@ pub(super) fn expand(
         fields,
     } = input;
 
-    let pg = quote!(::placeholder_query_postgres::query);
+    let pg = quote!(::rel9::query);
     let mode = Ident::new("__InputMode", Span::mixed_site());
     let target = Ident::new("__TargetMode", Span::mixed_site());
 

@@ -11,8 +11,8 @@ pub(crate) fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
     let ident = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
-    let params_path = quote!(::placeholder_query_postgres::query::params);
-    let query_path = quote!(::placeholder_query_postgres::query);
+    let params_path = quote!(::rel9::query::params);
+    let query_path = quote!(::rel9::query);
     let record_path = quote!(#params_path::record);
 
     if input.fields.is_empty() {

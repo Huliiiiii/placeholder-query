@@ -12,7 +12,7 @@ pub use rentals::*;
 pub use stores::*;
 pub use tables::*;
 
-use placeholder_query_macro::QueryInput;
+use rel9_macro::QueryInput;
 
 #[derive(QueryInput)]
 pub struct LanguageFilter {

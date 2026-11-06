@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, measurement::WallTime};
-use placeholder_query_macro::{QueryInput, table};
-use placeholder_query_postgres::query::{
+use rel9::query::{
     any, mode, projection::OptionalRow, select as pg, select::template::SelectTemplate,
 };
-use placeholder_query_tokio_postgres::Executor;
+use rel9_macro::{QueryInput, table};
+use rel9_tokio_postgres::Executor;
 use tokio::runtime::Runtime;
 
 use super::fixture::{self, Fixture};
@@ -75,11 +75,11 @@ fn users_with_posts() -> SelectTemplate<(User<mode::Expr>, OptionalRow<Post<mode
 
 pub fn construction(c: &mut Criterion) {
     c.benchmark_group("query_build/trivial")
-        .bench_function("placeholder_query", |b| {
+        .bench_function("rel9", |b| {
             b.iter(|| pg::from(std::hint::black_box(User::table())));
         });
     c.benchmark_group("query_build/medium")
-        .bench_function("placeholder_query", |b| {
+        .bench_function("rel9", |b| {
             b.iter(|| {
                 pg::query::<HairColor, _>(|input| {
                     pg::from(std::hint::black_box(User::table()))
@@ -90,7 +90,7 @@ pub fn construction(c: &mut Criterion) {
             });
         });
     c.benchmark_group("query_build/associations")
-        .bench_function("placeholder_query", |b| {
+        .bench_function("rel9", |b| {
             b.iter(|| {
                 (
                     pg::from(std::hint::black_box(User::table())),
@@ -106,11 +106,11 @@ pub fn construction(c: &mut Criterion) {
             });
         });
     c.benchmark_group("template_compile/trivial")
-        .bench_function("placeholder_query", |b| b.iter(users));
+        .bench_function("rel9", |b| b.iter(users));
     c.benchmark_group("template_compile/medium")
-        .bench_function("placeholder_query", |b| b.iter(users_with_posts));
+        .bench_function("rel9", |b| b.iter(users_with_posts));
     c.benchmark_group("template_compile/associations")
-        .bench_function("placeholder_query", |b| {
+        .bench_function("rel9", |b| {
             b.iter(|| (users(), posts(), comments()));
         });
 }
@@ -145,13 +145,10 @@ pub fn medium(
             .collect(),
     );
 
-    group.bench_function(
-        BenchmarkId::new("placeholder_query", fixture.users.len()),
-        |b| {
-            b.to_async(runtime)
-                .iter(|| async { executor.run(query.bind(&filter)).await.unwrap() });
-        },
-    );
+    group.bench_function(BenchmarkId::new("rel9", fixture.users.len()), |b| {
+        b.to_async(runtime)
+            .iter(|| async { executor.run(query.bind(&filter)).await.unwrap() });
+    });
 }
 
 pub fn trivial(
@@ -170,13 +167,10 @@ pub fn trivial(
             .map(fixture_user)
             .collect(),
     );
-    group.bench_function(
-        BenchmarkId::new("placeholder_query", fixture.users.len()),
-        |b| {
-            b.to_async(runtime)
-                .iter(|| async { executor.run(users.clone()).await.unwrap() });
-        },
-    );
+    group.bench_function(BenchmarkId::new("rel9", fixture.users.len()), |b| {
+        b.to_async(runtime)
+            .iter(|| async { executor.run(users.clone()).await.unwrap() });
+    });
 }
 
 async fn load_associations(
@@ -273,7 +267,7 @@ pub fn associations(
         fixture,
         runtime.block_on(load_associations(&executor, &users, &posts, &comments)),
     );
-    group.bench_function("placeholder_query", |b| {
+    group.bench_function("rel9", |b| {
         b.to_async(runtime)
             .iter(|| load_associations(&executor, &users, &posts, &comments));
     });

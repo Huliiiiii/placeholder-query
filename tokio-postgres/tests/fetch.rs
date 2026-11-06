@@ -2,13 +2,13 @@ mod support;
 
 use std::collections::HashMap;
 
-use placeholder_query_macro::QueryInput;
-use placeholder_query_postgres::{
+use rel9::{
     ProjectionExt,
     query::{any, select as pg},
 };
-use placeholder_query_runtime::{DataSource, Request, fetch, traverse};
-use placeholder_query_tokio_postgres::{Error, ExecError, Executor};
+use rel9_macro::QueryInput;
+use rel9_tokio_postgres::{Error, ExecError, Executor};
+use ruxl::{DataSource, Request, fetch, traverse};
 
 use support::{schema::User, seeded_executor};
 

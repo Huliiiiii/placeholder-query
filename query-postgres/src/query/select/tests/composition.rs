@@ -1,6 +1,6 @@
 use crate::query::projection::Scalar;
 use crate::query::{Projection, ProjectionExt, mode, select as pg, table::TableSchema};
-use placeholder_query_macro::{QueryInput, row};
+use rel9_macro::{QueryInput, row};
 
 use super::{Foo, User};
 

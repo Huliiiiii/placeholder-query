@@ -11,7 +11,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use placeholder_query_core::types::ParamId;
+use rel9_core::types::ParamId;
 
 #[derive_where::derive_where(Clone, Copy, Debug)]
 pub struct Param<T> {

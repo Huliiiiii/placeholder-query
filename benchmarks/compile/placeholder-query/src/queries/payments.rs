@@ -1,7 +1,7 @@
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
-use placeholder_query_macro::row;
-use placeholder_query_postgres::query::{mode, select as pg, select::template::SelectTemplate};
+use rel9::query::{mode, select as pg, select::template::SelectTemplate};
+use rel9_macro::row;
 
 use super::CustomerFilter;
 use crate::schema::{Customer, Film, Inventory, Payment, Rental, Staff};

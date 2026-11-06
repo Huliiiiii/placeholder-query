@@ -13,8 +13,8 @@ pub mod table;
 pub use expr::Expr;
 pub use operator::{BinaryOp, UnaryOp};
 pub use order::OrderExpr;
-pub use placeholder_query_core::types::Ident;
 pub use projection::{MappedProjection, OptionalRow, Projection, ProjectionExt};
+pub use rel9_core::types::Ident;
 
 #[doc(hidden)]
 pub enum Erased {}
