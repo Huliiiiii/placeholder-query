@@ -24,19 +24,19 @@ Build time excludes dependencies.
 
 ### Dev
 
-| Library | Time(ms) | Relative |
-| --- | ---: | ---: |
-| SQLx | **241.7** | **1.00×** |
-| placeholder-query | 354.0 | 1.46× |
-| Diesel | 1119.1 | 4.63× |
+| Library           |  Time(ms) |  Relative |
+| ----------------- | --------: | --------: |
+| SQLx              | **241.5** | **1.00×** |
+| placeholder-query |     366.8 |     1.52× |
+| Diesel            |    1193.0 |     4.96× |
 
 ### Release
 
-| Library | Time(ms) | Relative |
-| --- | ---: | ---: |
-| SQLx | **417.5** | **1.00×** |
-| placeholder-query | 973.8 | 2.33× |
-| Diesel | 1171.1 | 2.81× |
+| Library           |  Time(ms) |  Relative |
+| ----------------- | --------: | --------: |
+| SQLx              | **406.5** | **1.00×** |
+| placeholder-query |     829.6 |     2.04× |
+| Diesel            |    1164.2 |     2.87× |
 
 ## Reproduce
 
@@ -46,4 +46,3 @@ Requires hyperfine, jq, and mold.
 ```sh
 ./benchmarks/compile/benchmark.sh
 ```
-

@@ -81,7 +81,7 @@ impl<P: Projection, Input: ?Sized> Select<P, Input> {
                         body,
                         projection: projection.to_exprs(),
                     },
-                    &[],
+                    Vec::new(),
                 ),
                 input_scope,
             )),

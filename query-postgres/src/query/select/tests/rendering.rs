@@ -90,11 +90,13 @@ fn full_join_preserves_inputs_and_maybe_tags() {
 fn filters_can_reuse_columns_across_outer_joins() {
     let query = pg::query::<Filters, _>(|params| {
         let mut original = None;
-        let users = pg::from(User::table()).map(|user| {
-            let id = user.id();
-            original = Some(user);
-            id
-        });
+        let users = pg::from(User::table())
+            .filter(|user| user.email().eq(params.pattern))
+            .map(|user| {
+                let id = user.id();
+                original = Some(user);
+                id
+            });
         let user = original.unwrap();
 
         users
@@ -102,7 +104,6 @@ fn filters_can_reuse_columns_across_outer_joins() {
             .on(|_, foo| user.id().eq(foo.id()))
             .right_join(User::table())
             .on(|_, other| user.id().eq(other.id()))
-            .filter(|_| user.email().eq(params.pattern))
             .order_by(|_| user.name().asc())
             .map(|(_, other)| other.id)
     });

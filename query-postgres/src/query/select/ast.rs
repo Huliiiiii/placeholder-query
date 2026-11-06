@@ -1,5 +1,5 @@
 use crate::query::{
-    Expr,
+    Expr, OrderExpr,
     relation::{Relation, RelationId},
 };
 
@@ -82,11 +82,17 @@ impl SelectBody {
         }
     }
 
+    pub(crate) fn order_by(&mut self, order: OrderExpr) {
+        self.orders.push(Order {
+            expr: order.expr,
+            descending: order.descending,
+        });
+    }
+
     pub(crate) fn freshen(
         &self,
-        outer_bindings: &[(RelationId, RelationId)],
+        mut bindings: Vec<(RelationId, RelationId)>,
     ) -> (Self, Vec<(RelationId, RelationId)>) {
-        let mut bindings = outer_bindings.to_vec();
         let from = self.from.freshen(&mut bindings);
 
         let (filters, orders) = self.rebind_clauses(&bindings);
@@ -129,7 +135,7 @@ pub(crate) struct SelectAst {
 impl SelectAst {
     pub(crate) fn freshen(
         &self,
-        outer_bindings: &[(RelationId, RelationId)],
+        outer_bindings: Vec<(RelationId, RelationId)>,
     ) -> (Self, Vec<(RelationId, RelationId)>) {
         let (body, bindings) = self.body.freshen(outer_bindings);
         let projection = self

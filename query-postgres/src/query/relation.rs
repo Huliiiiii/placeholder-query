@@ -122,7 +122,7 @@ impl Relation {
     pub(crate) fn freshen(&self, bindings: &mut Vec<(RelationId, RelationId)>) -> Self {
         let node = match &self.node {
             RelationNode::DerivedTable(query) => {
-                RelationNode::DerivedTable(Box::new(query.freshen(bindings).0))
+                RelationNode::DerivedTable(Box::new(query.freshen(bindings.clone()).0))
             }
             RelationNode::Projection { from, exprs } => {
                 let from = from.freshen(bindings);

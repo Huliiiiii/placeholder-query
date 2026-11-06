@@ -8,8 +8,8 @@ use super::ast::{FromClause, Join, Order, SelectAst, SelectBody};
 type Column = (RelationId, u16);
 type Bindings = Vec<(Column, Column)>;
 
-pub(super) fn lower_select(query: SelectAst, bindings: &[(Column, Column)]) -> SelectAst {
-    let (from, bindings) = lower_from(query.body.from, bindings.to_vec());
+pub(super) fn lower_select(query: SelectAst, bindings: Bindings) -> SelectAst {
+    let (from, bindings) = lower_from(query.body.from, bindings);
     let projection = query
         .projection
         .into_iter()
@@ -116,7 +116,7 @@ fn lower_relation(relation: Relation, bindings: &[(Column, Column)]) -> (Relatio
             (RelationNode::DerivedTable(Box::new(query)), replacements)
         }
         RelationNode::DerivedTable(query) => (
-            RelationNode::DerivedTable(Box::new(lower_select(*query, bindings))),
+            RelationNode::DerivedTable(Box::new(lower_select(*query, bindings.to_vec()))),
             Vec::new(),
         ),
         node => (node, Vec::new()),

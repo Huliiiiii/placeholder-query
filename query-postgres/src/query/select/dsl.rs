@@ -7,11 +7,7 @@ use crate::query::{
     relation::RelationId,
 };
 
-use super::{
-    Select,
-    ast::{Order, rebind},
-    predicate::IntoPredicates,
-};
+use super::{Select, ast::rebind, predicate::IntoPredicates};
 
 impl<Columns, Input: ?Sized> Select<Columns, Input> {
     pub fn filter<P: IntoPredicates>(mut self, filter: impl FnOnce(&Columns) -> P) -> Self {
@@ -22,11 +18,7 @@ impl<Columns, Input: ?Sized> Select<Columns, Input> {
     }
 
     pub fn order_by(mut self, order: impl FnOnce(&Columns) -> OrderExpr) -> Self {
-        let order = order(&self.projection);
-        self.body.orders.push(Order {
-            expr: order.expr,
-            descending: order.descending,
-        });
+        self.body.order_by(order(&self.projection));
         self
     }
 
@@ -60,7 +52,7 @@ where
             }
         }
 
-        let (body, bindings) = self.body.freshen(&[]);
+        let (body, bindings) = self.body.freshen(Vec::new());
         let projection = self.projection.map_fields(&mut Rebind {
             bindings: &bindings,
         });
