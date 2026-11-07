@@ -1548,6 +1548,7 @@ dependencies = [
  "criterion",
  "futures-util",
  "indexmap",
+ "tokio",
 ]
 
 [[package]]

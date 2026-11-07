@@ -39,9 +39,6 @@ pub struct PostTag {
 }
 ```
 
-The examples import `rel9::query::select` as `pg`.
-Calls such as `pg::from` and `pg::query` come from that module.
-
 ## Queries
 
 ### Select
@@ -380,29 +377,42 @@ INNER JOIN "post" AS t2 ON t2."id" = t1."post_id"
 ORDER BY t2."id"
 ```
 
-## Fetch
+## Ruxl
 
-Fetch is a scheduler similar to Haxl.
+Ruxl is a scheduler similar to [Haxl](https://github.com/meta/Haxl).
+The runtime automatically batches and deduplicates requests and caches results for a single run.
 
 ### API reference
 
 ```rust
-impl<E, A> Fetch<E, A> {
-    pub fn map<B>(self, f: impl FnOnce(A) -> B) -> Fetch<E, B>;
-    pub fn and_then<B>(self, f: impl FnOnce(A) -> Fetch<E, B>) -> Fetch<E, B>;
-    pub fn zip<B>(self, other: Fetch<E, B>) -> Fetch<E, (A, B)>;
-}
+pub async fn run<E: Env, A>(
+    env: &E,
+    computation: impl for<'a> AsyncFnOnce(&'a Scope<E>) -> A,
+) -> A;
 
-pub fn traverse<E, T, B>(
+pub fn traverse<T, U, E, F>(
     items: impl IntoIterator<Item = T>,
-    f: impl Fn(T) -> Fetch<E, B>,
-) -> Fetch<E, Vec<B>>;
+    f: impl FnMut(T) -> F,
+) -> impl Future<Output = Result<Vec<U>, E>>
+where
+    F: Future<Output = Result<U, E>>;
+
+impl<E: Env> Scope<E> {
+    pub fn fetch<R>(
+        &self,
+        req: R,
+    ) -> impl Future<Output = Result<R::Output, FetchError<E::Error>>> + Send + '_
+    where
+        E: DataSource<R>,
+        R: Request + 'static,
+        R::Output: Clone + Send + 'static;
+}
 ```
 
-The next example first loads posts for a tag, then loads each post author.
-
 ```rust
-use ruxl::{Request, fetch, traverse};
+use futures_util::try_join;
+use rel9_tokio_postgres::{Error, Executor};
+use ruxl::{FetchError, Request, Scope};
 
 impl Request for PostsByTag {
     type Output = Vec<Post>;
@@ -422,57 +432,62 @@ pub struct FeedPost {
     pub author: User,
 }
 
-let feed_posts = fetch(PostsByTag { tag_id: 1 }).and_then(|posts| {
-    traverse(posts, |post| {
-        fetch(UserById { id: post.author_id })
-            .map(|author| FeedPost { post, author })
-    })
-});
-```
+async fn feed_posts(scope: &Scope<Executor>) -> Result<Vec<FeedPost>, FetchError<Error>> {
+    let posts = scope.fetch(PostsByTag { tag_id: 1 }).await?;
+    ruxl::traverse(posts, async |post| {
+        let author = scope.fetch(UserById { id: post.author_id }).await?;
+        Ok(FeedPost { post, author })
+    }).await
+}
 
-The viewer and feed posts can load independently, so `zip` combines them.
-Then `map` builds the final value.
-
-```rust
 pub struct TagFeed {
     pub viewer: User,
     pub posts: Vec<FeedPost>,
 }
 
-let tag_feed = fetch(UserById { id: 42 })
-    .zip(feed_posts)
-    .map(|(viewer, posts)| TagFeed { viewer, posts });
+let tag_feed = ruxl::run(&executor, async |scope| {
+    let (viewer, posts) = try_join!(
+        scope.fetch(UserById { id: 42 }),
+        feed_posts(scope),
+    )?;
+    Ok::<_, FetchError<Error>>(TagFeed { viewer, posts })
+}).await?;
 ```
 
-Requests are batched and deduplicated during execution. 
+For example, if tag 1 has four posts and the author IDs of the posts are `[6, 7, 42, 7]`, the run can proceed as follows:
 
-Results preserve the input order and are cached for the duration of a single run.
+```text
+// Ruxl dispatches the viewer and posts requests as independent batches.
+batch(UserById, [42])
+batch(PostsByTag, [1])  // run concurrently with UserById
+
+posts = result(PostsByTag(1))  // [p1, p2, p3, p4]
+
+// traverse requests one author for each post.
+request(UserById(6), UserById(7), UserById(42), UserById(7))
+
+// Ruxl reuses the pending or cached user and deduplicates UserById(7).
+reuse(UserById(42))
+batch(UserById, [6, 7])
+
+// Once the lookups complete, the computation returns the feed.
+TagFeed {
+  viewer: User(42),
+  posts: [FeedPost(p1, User(6)),  FeedPost(p2, User(7)),
+          FeedPost(p3, User(42)),  FeedPost(p4, User(7))]
+}
+```
 
 ## Interpreting with tokio-postgres
 
-`Executor::run` can execute compiled queries and fetch computations.
-
-```rust
-use rel9_tokio_postgres::Executor;
-use tokio_postgres::NoTls;
-
-// ...
-let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await?;
-// ...
-let executor = Executor::new(client);
-
-// run the compiled query
-let posts: Vec<Post> = executor.run(all_posts).await?;
-```
-
-### Fetch requests
-
-Implement `DataSource<T>` for the execution environment to interpret a request:
+Implement `DataSource` for the PostgreSQL `Executor` to use the same connection
+for direct queries and batched Ruxl requests.
 
 ```rust
 use std::collections::HashMap;
+use rel9_tokio_postgres::{Error, Executor};
 use ruxl::DataSource;
-use rel9_tokio_postgres::Error;
+use tokio_postgres::NoTls;
 
 impl DataSource<PostsByTag> for Executor {
     async fn fetch<'a>(
@@ -498,4 +513,15 @@ impl DataSource<PostsByTag> for Executor {
     }
 }
 
+// ...
+let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await?;
+// ...
+let executor = Executor::new(client);
+
+let all_posts = pg::from(Post::table()).compile();
+let posts: Vec<Post> = executor.run(all_posts).await?;
+
+let posts_by_tag: Vec<Vec<Post>> = ruxl::run(&executor, async |scope| {
+    ruxl::traverse([1, 2], |tag_id| scope.fetch(PostsByTag { tag_id })).await
+}).await?;
 ```

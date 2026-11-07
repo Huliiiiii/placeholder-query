@@ -1,23 +1,11 @@
 use std::{collections::HashMap, future::Future, hash::Hash};
 
-use crate::{Fetch, FetchError};
-
-pub trait Request: Clone + Eq + Hash {
+pub trait Request: Clone + Eq + Hash + Send + Sync {
     type Output;
 }
 
-pub trait Env: Sized {
-    type Error;
-
-    fn run<A>(
-        &self,
-        computation: impl Into<Fetch<Self, A>>,
-    ) -> impl Future<Output = Result<A, FetchError<Self::Error>>>
-    where
-        A: 'static,
-    {
-        computation.into().run_with(self)
-    }
+pub trait Env: Sized + Sync {
+    type Error: Clone + Send;
 }
 
 pub trait DataSource<R>: Env
@@ -29,8 +17,8 @@ where
     /// `reqs` must be unique.
     fn fetch<'a>(
         &self,
-        reqs: impl IntoIterator<Item = &'a R>,
-    ) -> impl Future<Output = Result<HashMap<R, R::Output>, Self::Error>>
+        reqs: impl IntoIterator<Item = &'a R> + Send,
+    ) -> impl Future<Output = Result<HashMap<R, R::Output>, Self::Error>> + Send
     where
         R: 'a;
 }

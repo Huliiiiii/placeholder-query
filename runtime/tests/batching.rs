@@ -1,267 +1,159 @@
-mod support;
+use std::{any::Any, collections::HashMap, sync::Mutex};
 
-use std::{any::Any, cell::RefCell, collections::HashMap};
-
-use ruxl::{DataSource, Env, Request, fetch, traverse};
-
-use support::executor::run;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct User {
-    id: i32,
-    name: &'static str,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct UserCard {
-    id: i32,
-    display_name: &'static str,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Post {
-    id: i32,
-    author_id: i32,
-}
+use futures_util::{future::try_join_all, join, try_join};
+use ruxl::{DataSource, Env, Request};
 
 #[derive(Default)]
-struct TestBackend {
-    users: Vec<User>,
-    user_cards: Vec<UserCard>,
-    posts: Vec<Post>,
-    reqs: RefCell<Vec<Box<dyn Any>>>,
+struct Backend {
+    batches: Mutex<Vec<Box<dyn Any + Send>>>,
 }
 
-impl Env for TestBackend {
+impl Env for Backend {
     type Error = ();
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct UserById(i32);
+struct Number(i32);
 
-impl Request for UserById {
-    type Output = Option<User>;
+impl Request for Number {
+    type Output = i32;
 }
 
-impl DataSource<UserById> for TestBackend {
+impl DataSource<Number> for Backend {
     async fn fetch<'a>(
         &self,
-        reqs: impl IntoIterator<Item = &'a UserById>,
-    ) -> Result<HashMap<UserById, Option<User>>, ()> {
-        let mut results = HashMap::new();
-        for req in reqs {
-            let user = self.users.iter().find(|user| user.id == req.0).cloned();
-            assert!(results.insert(req.clone(), user).is_none());
-        }
+        reqs: impl IntoIterator<Item = &'a Number>,
+    ) -> Result<HashMap<Number, i32>, ()> {
+        let mut reqs = reqs.into_iter().cloned().collect::<Vec<_>>();
+        reqs.sort_unstable_by_key(|req| req.0);
+        self.batches.lock().unwrap().push(Box::new(reqs.clone()));
 
-        self.reqs.borrow_mut().push(Box::new(results.clone()));
-
-        Ok(results)
+        Ok(reqs.into_iter().map(|req| (req.clone(), req.0)).collect())
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct UserCardById(i32);
+struct Text(i32);
 
-impl Request for UserCardById {
-    type Output = Option<UserCard>;
+impl Request for Text {
+    type Output = String;
 }
 
-impl DataSource<UserCardById> for TestBackend {
+impl DataSource<Text> for Backend {
     async fn fetch<'a>(
         &self,
-        reqs: impl IntoIterator<Item = &'a UserCardById>,
-    ) -> Result<HashMap<UserCardById, Option<UserCard>>, ()> {
-        let mut results = HashMap::new();
-        for req in reqs {
-            let card = self
-                .user_cards
-                .iter()
-                .find(|card| card.id == req.0)
-                .cloned();
-            assert!(results.insert(req.clone(), card).is_none());
-        }
+        reqs: impl IntoIterator<Item = &'a Text>,
+    ) -> Result<HashMap<Text, String>, ()> {
+        let mut reqs = reqs.into_iter().cloned().collect::<Vec<_>>();
+        reqs.sort_unstable_by_key(|req| req.0);
+        self.batches.lock().unwrap().push(Box::new(reqs.clone()));
 
-        self.reqs.borrow_mut().push(Box::new(results.clone()));
-
-        Ok(results)
+        Ok(reqs
+            .into_iter()
+            .map(|req| (req.clone(), req.0.to_string()))
+            .collect())
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct FeedPosts;
+#[tokio::test]
+async fn deduplication_preserves_results_for_each_input() {
+    let backend = Backend::default();
+    let values = ruxl::run(&backend, async |scope| {
+        ruxl::traverse([2, 1, 2, 1], |id| scope.fetch(Number(id))).await
+    })
+    .await
+    .unwrap();
 
-impl Request for FeedPosts {
-    type Output = Vec<Post>;
-}
-
-impl DataSource<FeedPosts> for TestBackend {
-    async fn fetch<'a>(
-        &self,
-        reqs: impl IntoIterator<Item = &'a FeedPosts>,
-    ) -> Result<HashMap<FeedPosts, Vec<Post>>, ()> {
-        let mut results = HashMap::new();
-        for req in reqs {
-            assert!(results.insert(req.clone(), self.posts.clone()).is_none());
-        }
-
-        self.reqs.borrow_mut().push(Box::new(results.clone()));
-
-        Ok(results)
-    }
-}
-
-#[test]
-fn deduplication_preserves_results_for_each_input() {
-    let backend = TestBackend {
-        users: vec![
-            User { id: 1, name: "Mio" },
-            User {
-                id: 2,
-                name: "Ritsu",
-            },
-        ],
-        ..Default::default()
-    };
-    let users = run(backend.run(traverse([2, 1, 2, 1], |id| fetch(UserById(id))))).unwrap();
-
-    let reqs = backend.reqs.into_inner();
-    assert_eq!(reqs.len(), 1);
-    let batch = reqs[0]
-        .downcast_ref::<HashMap<UserById, Option<User>>>()
-        .unwrap();
-
-    assert_eq!(batch.len(), 2);
-    assert!(batch.contains_key(&UserById(1)));
-    assert!(batch.contains_key(&UserById(2)));
+    assert_eq!(values, [2, 1, 2, 1]);
+    let batches = backend.batches.into_inner().unwrap();
+    assert_eq!(batches.len(), 1);
     assert_eq!(
-        users,
-        vec![
-            Some(User {
-                id: 2,
-                name: "Ritsu"
-            }),
-            Some(User { id: 1, name: "Mio" }),
-            Some(User {
-                id: 2,
-                name: "Ritsu"
-            }),
-            Some(User { id: 1, name: "Mio" }),
-        ]
+        batches[0].downcast_ref::<Vec<Number>>().unwrap(),
+        &[Number(1), Number(2)]
     );
 }
 
-#[test]
-fn different_request_types_are_fetched_separately() {
-    let backend = TestBackend {
-        users: vec![User { id: 7, name: "Mio" }],
-        user_cards: vec![UserCard {
-            id: 7,
-            display_name: "Mio",
-        }],
-        ..Default::default()
-    };
-    let result = run(backend.run(fetch(UserById(7)).zip(fetch(UserCardById(7))))).unwrap();
+#[tokio::test]
+async fn different_request_types_are_fetched_separately() {
+    let backend = Backend::default();
+    let result = ruxl::run(&backend, async |scope| {
+        try_join!(scope.fetch(Number(7)), scope.fetch(Text(7)))
+    })
+    .await
+    .unwrap();
 
-    let reqs = backend.reqs.borrow();
-    assert_eq!(reqs.len(), 2);
-    assert!(reqs.iter().any(|batch| {
+    assert_eq!(result, (7, String::from("7")));
+    let batches = backend.batches.into_inner().unwrap();
+    assert_eq!(batches.len(), 2);
+    assert!(batches.iter().any(|batch| {
         batch
-            .downcast_ref::<HashMap<UserById, Option<User>>>()
-            .is_some_and(|batch| batch.len() == 1 && batch.contains_key(&UserById(7)))
+            .downcast_ref::<Vec<Number>>()
+            .is_some_and(|reqs| reqs == &[Number(7)])
     }));
-    assert!(reqs.iter().any(|batch| {
+    assert!(batches.iter().any(|batch| {
         batch
-            .downcast_ref::<HashMap<UserCardById, Option<UserCard>>>()
-            .is_some_and(|batch| batch.len() == 1 && batch.contains_key(&UserCardById(7)))
+            .downcast_ref::<Vec<Text>>()
+            .is_some_and(|reqs| reqs == &[Text(7)])
     }));
+}
+
+#[tokio::test]
+async fn cached_results_are_reused_across_dependent_computations() {
+    let backend = Backend::default();
+    let result = ruxl::run(&backend, async |scope| {
+        scope.fetch(Number(7)).await?;
+        scope.fetch(Number(7)).await
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(result, 7);
+    let batches = backend.batches.into_inner().unwrap();
+    assert_eq!(batches.len(), 1);
     assert_eq!(
-        result,
-        (
-            Some(User { id: 7, name: "Mio" }),
-            Some(UserCard {
-                id: 7,
-                display_name: "Mio"
-            }),
+        batches[0].downcast_ref::<Vec<Number>>().unwrap(),
+        &[Number(7)]
+    );
+}
+
+#[tokio::test]
+async fn requests_from_parallel_branches_are_batched_together() {
+    let backend = Backend::default();
+    let result = ruxl::run(&backend, async |scope| {
+        let count = scope.fetch(Number(2)).await?;
+        try_join!(
+            try_join_all((0..count).map(|id| scope.fetch(Number(id + 7)))),
+            scope.fetch(Number(9)),
         )
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(result, (vec![7, 8], 9));
+    let batches = backend.batches.into_inner().unwrap();
+    assert_eq!(batches.len(), 2);
+    assert_eq!(
+        batches[0].downcast_ref::<Vec<Number>>().unwrap(),
+        &[Number(2)]
+    );
+    assert_eq!(
+        batches[1].downcast_ref::<Vec<Number>>().unwrap(),
+        &[Number(7), Number(8), Number(9)]
     );
 }
 
-#[test]
-fn cached_results_are_reused_across_dependent_computations() {
-    let backend = TestBackend {
-        users: vec![User { id: 7, name: "Mio" }],
-        ..Default::default()
-    };
-    let computation = fetch(UserById(7)).and_then(|_| fetch(UserById(7)));
-    let result = run(backend.run(computation)).unwrap();
+#[tokio::test]
+async fn concurrent_runs_keep_their_request_caches_separate() {
+    let backend = Backend::default();
+    let (left, right) = join!(
+        ruxl::run(&backend, async |scope| scope.fetch(Number(7)).await),
+        ruxl::run(&backend, async |scope| scope.fetch(Number(7)).await),
+    );
 
-    let reqs = backend.reqs.borrow();
-    assert_eq!(reqs.len(), 1);
-    let batch = reqs[0]
-        .downcast_ref::<HashMap<UserById, Option<User>>>()
-        .unwrap();
-    assert_eq!(batch.len(), 1);
-    assert!(batch.contains_key(&UserById(7)));
-    assert_eq!(result, Some(User { id: 7, name: "Mio" }));
-}
-
-#[test]
-fn requests_from_parallel_branches_are_batched_together() {
-    let backend = TestBackend {
-        users: vec![
-            User { id: 7, name: "Mio" },
-            User {
-                id: 8,
-                name: "Ritsu",
-            },
-            User { id: 9, name: "Yui" },
-        ],
-        posts: vec![
-            Post {
-                id: 10,
-                author_id: 7,
-            },
-            Post {
-                id: 20,
-                author_id: 8,
-            },
-        ],
-        ..Default::default()
-    };
-    let computation = fetch(FeedPosts)
-        .and_then(|posts| {
-            traverse(posts, |post| {
-                fetch(UserById(post.author_id))
-                    .map(|author| (post, author.expect("post author must exist")))
-            })
-            .zip(fetch(UserById(9)))
-            .map(|(posts, viewer)| (viewer.expect("viewer must exist"), posts))
-        })
-        .map(|(viewer, posts)| {
-            (
-                viewer.name,
-                posts
-                    .into_iter()
-                    .map(|(post, author)| (post.id, author.name))
-                    .collect::<Vec<_>>(),
-            )
-        });
-    let result = run(backend.run(computation)).unwrap();
-
-    let reqs = backend.reqs.into_inner();
-    assert_eq!(reqs.len(), 2);
-    let posts = reqs[0]
-        .downcast_ref::<HashMap<FeedPosts, Vec<Post>>>()
-        .unwrap();
-    assert_eq!(posts.len(), 1);
-    assert!(posts.contains_key(&FeedPosts));
-    let users = reqs[1]
-        .downcast_ref::<HashMap<UserById, Option<User>>>()
-        .unwrap();
-    assert_eq!(users.len(), 3);
-    assert!(users.contains_key(&UserById(7)));
-    assert!(users.contains_key(&UserById(8)));
-    assert!(users.contains_key(&UserById(9)));
-    assert_eq!(result, ("Yui", vec![(10, "Mio"), (20, "Ritsu")]));
+    assert_eq!((left.unwrap(), right.unwrap()), (7, 7));
+    let batches = backend.batches.into_inner().unwrap();
+    assert_eq!(batches.len(), 2);
+    for batch in batches {
+        assert_eq!(batch.downcast_ref::<Vec<Number>>().unwrap(), &[Number(7)]);
+    }
 }

@@ -2,13 +2,14 @@ mod support;
 
 use std::collections::HashMap;
 
+use futures_util::future::try_join_all;
 use rel9::{
     ProjectionExt,
     query::{any, select as pg},
 };
 use rel9_macro::QueryInput;
 use rel9_tokio_postgres::{Error, ExecError, Executor};
-use ruxl::{DataSource, Request, fetch, traverse};
+use ruxl::{DataSource, Request};
 
 use support::{schema::User, seeded_executor};
 
@@ -46,16 +47,33 @@ impl DataSource<UserByName> for Executor {
     }
 }
 
+#[test]
+fn run_future_is_send() {
+    fn assert_send(_: impl Send) {}
+
+    let _ = |executor: &Executor| {
+        assert_send(ruxl::run(executor, async |scope| {
+            scope
+                .fetch(UserByName {
+                    name: String::from("Mio"),
+                })
+                .await
+        }));
+    };
+}
+
 #[tokio::test]
 async fn batch_fetch_preserves_request_order() -> Result<(), ExecError> {
     let executor = seeded_executor().await?;
-    let users = executor
-        .run(traverse(["Mio", "Ada"], |name| {
-            fetch(UserByName {
+    let users = ruxl::run(&executor, async |scope| {
+        try_join_all(["Mio", "Ada"].into_iter().map(|name| {
+            scope.fetch(UserByName {
                 name: name.to_owned(),
             })
         }))
-        .await?;
+        .await
+    })
+    .await?;
 
     assert_eq!(
         users

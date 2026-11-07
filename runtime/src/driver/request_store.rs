@@ -13,12 +13,12 @@ use crate::{
 
 use super::{result::ResultVar, value::Value};
 
-type CompletedBatch = Vec<(ResultVar, Value)>;
+type CompletedBatch<E> = Vec<(ResultVar, Result<Value, FetchError<E>>)>;
 
 pub(super) type ExecuteBatchFuture<'a, E> =
-    Pin<Box<dyn Future<Output = Result<CompletedBatch, FetchError<<E as Env>::Error>>> + 'a>>;
+    Pin<Box<dyn Future<Output = CompletedBatch<<E as Env>::Error>> + Send + 'a>>;
 
-trait PendingBatch<E> {
+trait PendingBatch<E>: Send {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
     fn into_job<'a>(self: Box<Self>, context: &'a E) -> ExecuteBatchFuture<'a, E>
@@ -30,7 +30,7 @@ impl<E, R> PendingBatch<E> for Vec<(R, ResultVar)>
 where
     E: DataSource<R>,
     R: Request + 'static,
-    R::Output: 'static,
+    R::Output: Send + 'static,
 {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
@@ -40,19 +40,23 @@ where
         let batch = *self;
 
         Box::pin(async move {
-            let mut outputs = context.fetch(batch.iter().map(|(req, _)| req)).await?;
-
-            batch
-                .into_iter()
-                .map(|(req, rvar)| {
-                    outputs
-                        .remove(&req)
-                        .map(|output| (rvar, Value::new(output)))
-                        .ok_or_else(|| FetchError::MissingOutput {
-                            req_type: type_name::<R>(),
-                        })
-                })
-                .collect()
+            match context.fetch(batch.iter().map(|(req, _)| req)).await {
+                Ok(mut outputs) => batch
+                    .into_iter()
+                    .map(|(req, rvar)| {
+                        let output = outputs.remove(&req).map(Value::new).ok_or_else(|| {
+                            FetchError::MissingOutput {
+                                req_type: type_name::<R>(),
+                            }
+                        });
+                        (rvar, output)
+                    })
+                    .collect(),
+                Err(error) => batch
+                    .into_iter()
+                    .map(|(_, rvar)| (rvar, Err(FetchError::Executor(error.clone()))))
+                    .collect(),
+            }
         })
     }
 }
@@ -72,7 +76,7 @@ impl<E> RequestStore<E> {
     where
         E: DataSource<R>,
         R: Request + 'static,
-        R::Output: 'static,
+        R::Output: Send + 'static,
     {
         match self.batches.entry(TypeId::of::<R>()) {
             IndexEntry::Vacant(entry) => {

@@ -9,7 +9,8 @@ indexmap.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "test-util"] }
 
 [[bench]]
-name = "fetch_runtime"
+name = "ruxl"
 harness = false

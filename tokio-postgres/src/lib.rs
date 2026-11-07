@@ -2,7 +2,7 @@ pub mod decode;
 pub mod params;
 mod statement_cache;
 
-use std::{collections::HashMap, fmt, future::Future, num::NonZeroUsize, pin::pin};
+use std::{collections::HashMap, fmt, future::Future, num::NonZeroUsize, pin::pin, sync::Arc};
 
 use futures_util::{Stream, StreamExt, TryStreamExt};
 use rel9::{
@@ -15,7 +15,7 @@ use rel9::{
         select::{BoundSelect, Select, template::SelectTemplate},
     },
 };
-use ruxl::{Env, Fetch, FetchError, Request};
+use ruxl::{Env, FetchError, Request};
 use ruxl_postgres::{CardinalityError, FromRows};
 use tokio_postgres::Client;
 
@@ -23,9 +23,9 @@ use decode::{DecodeRow, RowDecoder};
 use params::BindParams;
 use statement_cache::StatementCache;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
-    Executor(tokio_postgres::Error),
+    Executor(Arc<tokio_postgres::Error>),
     Cardinality(CardinalityError),
 }
 
@@ -43,7 +43,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Executor(error) => Some(error),
+            Self::Executor(error) => Some(error.as_ref()),
             Self::Cardinality(error) => Some(error),
         }
     }
@@ -51,7 +51,7 @@ impl std::error::Error for Error {
 
 impl From<tokio_postgres::Error> for Error {
     fn from(error: tokio_postgres::Error) -> Self {
-        Self::Executor(error)
+        Self::Executor(Arc::new(error))
     }
 }
 
@@ -109,13 +109,16 @@ impl Executor {
         R::Fields: ArrayFields,
         <R::Fields as ArrayFields>::Arrays<'input>: BindParams,
     {
-        let reqs = reqs.into_iter();
-        let mut rows_by_req = HashMap::<_, Vec<V>>::with_capacity(reqs.size_hint().0);
-
-        let values = R::Fields::transpose(reqs.map(|req| {
-            rows_by_req.insert(req.clone(), Vec::new());
-            req.fields()
-        }));
+        // TODO: Remove this scope once rustc fixes https://github.com/rust-lang/rust/issues/128095
+        let (mut rows_by_req, values) = {
+            let reqs = reqs.into_iter();
+            let mut rows_by_req = HashMap::<_, Vec<V>>::with_capacity(reqs.size_hint().0);
+            let values = R::Fields::transpose(reqs.map(|req| {
+                rows_by_req.insert(req.clone(), Vec::new());
+                req.fields()
+            }));
+            (rows_by_req, values)
+        };
 
         let mut row_stream = pin!(self.query(query, &values).await?);
         while let Some((req, value)) = row_stream.try_next().await? {
@@ -130,7 +133,7 @@ impl Executor {
             .collect()
     }
 
-    /// Executes a query or fetch computation.
+    /// Executes a query.
     pub async fn run<R>(&self, computation: R) -> Result<R::Output, ExecError>
     where
         R: Executable,
@@ -183,17 +186,6 @@ pub trait Executable {
     type Output;
 
     fn run_on(self, executor: &Executor) -> impl Future<Output = Result<Self::Output, ExecError>>;
-}
-
-impl<A> Executable for Fetch<Executor, A>
-where
-    A: 'static,
-{
-    type Output = A;
-
-    async fn run_on(self, executor: &Executor) -> Result<Self::Output, ExecError> {
-        Env::run(executor, self).await
-    }
 }
 
 impl<P> Executable for Select<P, ()>

@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FetchError<E> {
     Executor(E),
     MissingOutput { req_type: &'static str },

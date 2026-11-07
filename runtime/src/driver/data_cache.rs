@@ -10,13 +10,13 @@ type Bucket<R> = HashMap<R, ResultId>;
 
 #[derive(Default)]
 pub(super) struct DataCache {
-    buckets: HashMap<TypeId, Box<dyn Any>>,
+    buckets: HashMap<TypeId, Box<dyn Any + Send>>,
 }
 
 impl DataCache {
     pub(super) fn entry<R>(&mut self, req: R) -> Entry<'_, R, ResultId>
     where
-        R: Eq + Hash + 'static,
+        R: Eq + Hash + Send + 'static,
     {
         let bucket = self
             .buckets
